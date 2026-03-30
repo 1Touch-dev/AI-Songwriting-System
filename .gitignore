@@ -31,3 +31,4 @@ _rag/
 /tmp/
 inspect_*.py
 check_*.py 
+ai-songwriter-model.pem
