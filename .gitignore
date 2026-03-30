@@ -1,0 +1,33 @@
+# Secrets & Environment
+.env
+venv/
+.venv/
+
+# Python Cache & Artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data & Models (Heavy or generated)
+data/
+indexes/
+logs/
+evaluation/results.json
+evaluation/detailed_results.json
+_rag/
+
+# External Drive / Mac / USB Noise
+._*
+.DS_Store
+.fseventsd
+.Spotlight-V100
+.Trashes
+
+# Temporary research scripts
+/tmp/
+inspect_*.py
+check_*.py 

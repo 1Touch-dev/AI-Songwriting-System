@@ -1,0 +1,30 @@
+# Core
+python-dotenv>=1.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+tqdm>=4.65.0
+
+# Data
+datasets>=2.14.0
+huggingface-hub>=0.17.0
+requests>=2.31.0
+
+# OpenAI
+openai>=1.3.0
+
+# LangChain
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.10
+
+# Embeddings
+sentence-transformers>=2.2.2
+
+# Vector DB
+faiss-cpu>=1.7.4
+
+# Frontend
+streamlit>=1.28.0
+
+# Apify (optional scraping)
+apify-client>=1.5.0
