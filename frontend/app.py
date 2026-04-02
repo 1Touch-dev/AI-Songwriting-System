@@ -28,6 +28,7 @@ from utils.config import (
     CHUNKS_PATH,
     FAISS_INDEX_PATH,
     LABELED_SONGS_PATH,
+    RAW_DIR,
     RERANK_ENABLED,
     STYLE_STRENGTH_DEFAULT,
     TARGET_ARTISTS,
@@ -63,6 +64,19 @@ def _quality_bar(score: float, label: str = "") -> None:
         f"<div style='font-size:11px;color:#555;margin-top:2px;'>{score:.3f}</div>",
         unsafe_allow_html=True,
     )
+
+def _extract_hook(lyrics: str) -> str:
+    """Extract a catchy hook phrase from the chorus."""
+    # Look for [Chorus] sections
+    chorus_match = re.search(r"\[[Cc]horus.*?\]\n(.*?)\n", lyrics, re.S)
+    if chorus_match:
+        lines = [l.strip() for l in chorus_match.group(1).split("\n") if l.strip()]
+        if lines:
+            # Often the first line of the chorus is the hook
+            raw_hook = lines[0]
+            # Clean up common punctuation and make catchy
+            return raw_hook.strip('.,?! "')
+    return ""
 
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -132,24 +146,73 @@ col_left, col_right = st.columns([1, 1], gap="large")
 
 # ── LEFT: controls ─────────────────────────────────────────────────────────
 with col_left:
+    # ── Demo Mode ──────────────────────────────────────────────────────────
+    st.subheader("⚡ Quick Demo Presets")
+    d1, d2, d3 = st.columns(3)
+    with d1:
+        if st.button("Drake 💔", use_container_width=True, help="Theme: Heartbreak"):
+            st.session_state.demo_artist = ["Drake"]
+            st.session_state.demo_theme = "heartbreak"
+            st.rerun()
+    with d2:
+        if st.button("SZA 🌊", use_container_width=True, help="Theme: Emotional Vulnerability"):
+            st.session_state.demo_artist = ["SZA"]
+            st.session_state.demo_theme = "emotional vulnerability"
+            st.rerun()
+    with d3:
+        if st.button("Mixed 🔥", use_container_width=True, help="Theme: Late Night Regret"):
+            st.session_state.demo_artist = ["Drake", "SZA"]
+            st.session_state.demo_theme = "late night regret"
+            st.rerun()
+            
+    st.divider()
+    # 1. Artist(s)
     st.subheader("1. Artist(s)")
-    multi = st.toggle("Mix multiple artists", value=False)
+    
+    # Dynamically discover available artists from data/raw/
+    def get_available_artists():
+        # Core targets
+        artists = list(TARGET_ARTISTS)
+        # Dynamically ingested ones
+        if RAW_DIR.exists():
+            for f in RAW_DIR.glob("*.json"):
+                name = f.stem.replace("_", " ").title()
+                if name not in artists:
+                    artists.append(name)
+        return sorted(list(set(artists)))
+
+    available_artists = get_available_artists()
+    default_artists = st.session_state.get("demo_artist", ["Drake", "SZA"])
+    
+    multi = st.toggle("Mix multiple artists", value=len(default_artists)>1)
+    
     if multi:
         selected_artists = st.multiselect(
             "Select 2–4 artists",
-            sorted(TARGET_ARTISTS), default=["Drake","SZA"], max_selections=4,
+            available_artists,
+            default=[a for a in default_artists if a in available_artists],
+            max_selections=4,
         )
     else:
+        # Single artist mode
+        idx = available_artists.index(default_artists[0]) if default_artists[0] in available_artists else 0
         selected_artists = [st.selectbox(
-            "Select an artist", sorted(TARGET_ARTISTS),
-            index=sorted(TARGET_ARTISTS).index("Drake"),
+            "Select an artist", available_artists, index=idx
         )]
+    
+    new_artist = st.text_input("OR Add New Artist (Ingest from Genius)", placeholder="e.g. Frank Ocean")
+    if new_artist.strip():
+        # If the user typed a name manually, we prioritize it
+        artist_to_add = new_artist.strip()
+        if artist_to_add not in selected_artists:
+            selected_artists = [artist_to_add]
 
     st.subheader("2. Theme")
+    default_theme = st.session_state.get("demo_theme", "heartbreak and moving on")
     theme = st.text_input(
         "Theme / emotion",
         placeholder="e.g. heartbreak, self-confidence, summer love, nostalgia",
-        value="heartbreak and moving on",
+        value=default_theme,
     )
 
     st.subheader("3. Structure")
@@ -158,7 +221,15 @@ with col_left:
         "Or custom", placeholder="Intro → Verse 1 → Chorus → Verse 2 → Chorus → Outro",
     )
     structure = custom_structure.strip() or STRUCTURES[structure_choice]
-    st.caption(f"`{structure}`")
+    
+    st.subheader("Generation mode")
+    gen_mode = st.selectbox(
+        "Mode",
+        ["Full Song", "Verse Only", "Chorus Only", "Hook Generator", "Bridge"],
+        index=0,
+        help="Select section-specific generation or full song."
+    )
+    st.caption(f"`{structure}` (Mode: {gen_mode})")
 
     st.subheader("4. Extra Instructions (optional)")
     extra = st.text_area(
@@ -192,6 +263,42 @@ with col_right:
 
         with st.spinner("Retrieving examples and generating lyrics…"):
             try:
+                # ── Dynamic Ingestion Logic ──────────────────────────────
+                import importlib.util
+                def _get_ingester():
+                    spec = importlib.util.spec_from_file_location("ingest", "scripts/01_build_dataset.py")
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    return mod
+                
+                ingester = _get_ingester()
+                
+                for artist in selected_artists:
+                    if artist not in TARGET_ARTISTS:
+                        # 1. Fetch
+                        with st.status(f"Adding '{artist}' to system...", expanded=True) as status:
+                            st.write(f"🔍 Fetching songs from Genius for '{artist}'...")
+                            success = ingester.ingest_dynamic_artist(artist)
+                            if success:
+                                # 2. Label
+                                st.write(f"🏷️ Labeling and analyzing lyrics...")
+                                import subprocess
+                                subprocess.run([sys.executable, "scripts/02_label_songs.py"])
+                                
+                                # 3. Index
+                                st.write(f"🏗️ Building search index (appending vectors)...")
+                                subprocess.run([sys.executable, "scripts/03_build_index.py", "--append", "--artist", artist])
+                                
+                                # 4. REFRESH IN-MEMORY STATE
+                                st.write(f"🔄 Refreshing system memory...")
+                                pipeline.retriever.reload()
+                                
+                                status.update(label=f"✅ '{artist}' ready for generation!", state="complete", expanded=False)
+                            else:
+                                status.update(label=f"❌ Failed to find artist '{artist}'.", state="error")
+                                st.error(f"Could not find or ingest '{artist}' on Genius. Try a different name.")
+                                st.stop()
+
                 result = pipeline.run(
                     artists=selected_artists,
                     theme=theme.strip(),
@@ -201,6 +308,7 @@ with col_right:
                     temperature=temperature,
                     extra_instructions=extra.strip(),
                     style_strength=style_strength,
+                    mode=gen_mode,
                 )
             except RuntimeError as exc:
                 st.error(
@@ -211,6 +319,7 @@ with col_right:
                 st.error(f"Unexpected error: `{exc}`")
                 st.stop()
 
+        result["mode"] = gen_mode
         result["_timestamp"] = datetime.now().strftime("%H:%M:%S")
         st.session_state.history = [result] + st.session_state.history[:9]
 
@@ -244,7 +353,7 @@ with col_right:
             f"</span>",
             unsafe_allow_html=True,
         )
-        _quality_bar(rq, f"Retrieval Quality ({rq:.3f})")
+        _quality_bar(rq, f"Style Grounding ({rq:.3f})")
 
         # Fallback warning
         if cur.get("retrieval_fallback"):
@@ -262,23 +371,115 @@ with col_right:
             f"Style strength: {ss:.2f} ({tier})  ·  "
             f"Prompt: {cur.get('prompt_version','?')}"
         )
+        # Better metric display to avoid "0...." truncation
+        # Style Grounding (Hardened Color thresholds)
+        if rq >= 0.7:
+            rq_color = "🟢 Strong"
+        elif rq >= 0.4:
+            rq_color = "🟡 Moderate"
+        else:
+            rq_color = "🔴 Weak"
+        
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.markdown(f"<div style='font-size:0.9rem; color:gray;'>Style Grounding</div>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:1.2rem; font-weight:bold;'>{rq:.3f}</span> <span style='font-size:0.8rem;'>{rq_color}</span>", unsafe_allow_html=True)
+        
+        with m2:
+            st.markdown(f"<div style='font-size:0.9rem; color:gray;'>Style Fidelity</div>", unsafe_allow_html=True)
+            avg_fidelity = sum(v.get('style_fidelity', 0) for v in cur.get('versions', [])) / max(1, len(cur.get('versions', [])))
+            st.markdown(f"<span style='font-size:1.2rem; font-weight:bold;'>{avg_fidelity:.3f}</span>", unsafe_allow_html=True)
+        
+        with m3:
+            st.markdown(f"<div style='font-size:0.9rem; color:gray;'>Latency</div>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:1.2rem; font-weight:bold;'>{(cur.get('latency_ms', 0)/1000):.2f}s</span>", unsafe_allow_html=True)
+            
+        with m4:
+            st.markdown(f"<div style='font-size:0.9rem; color:gray;'>Artists</div>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:1.2rem; font-weight:bold;'>{len(cur['artists'])} sel.</span>", unsafe_allow_html=True)
         st.divider()
 
-        # Lyrics
-        lyrics_md = re.sub(r"(\[[^\]]+\])", r"**\1**", cur["lyrics"])
-        st.markdown(lyrics_md)
+        # ── Lyrics Versions Tabs ──────────────────────────────────────────
+        versions_data = cur.get("versions", [])
+        if not versions_data:
+            st.error("No versions generated.")
+            st.stop()
+            
+        # Determine labels for tabs, marking Best Version
+        tab_labels = []
+        for i, v in enumerate(versions_data):
+            label = f"Version {chr(65+i)}"
+            if i == 0: # Pipeline sorts by fidelity, so 0 is best
+                label = f"🏆 {label} (Best)"
+            tab_labels.append(label)
+            
+        tabs = st.tabs(tab_labels)
+        
+        for i, tab in enumerate(tabs):
+            tab_lyr = versions_data[i]["lyrics"]
+            fidelity = versions_data[i]["style_fidelity"]
+            
+            with tab:
+                hook = _extract_hook(tab_lyr)
+                
+                # Prominent Hook Display
+                if hook:
+                    st.markdown(
+                        f"<div style='background-color:#1db95422; border-left: 5px solid #1db954; padding: 15px; border-radius: 5px; margin-bottom: 20px;'>"
+                        f"<span style='font-size: 0.9em; color: #1db954; font-weight: bold; text-transform: uppercase;'>🎯 Catchy Hook Identified</span><br/>"
+                        f"<span style='font-size: 1.4em; font-weight: bold; font-style: italic;'>\"{hook}\"</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                
+                # Version Specific Controls
+                b1, b2, b3 = st.columns([1, 1, 2])
+                with b1:
+                    btn_key = f"improve_hook_{i}_{cur.get('_timestamp','')}"
+                    if st.button("✨ Improve Hook", key=btn_key, use_container_width=True):
+                        with st.spinner("Polishing chorus..."):
+                            improved = get_pipeline().improve_hook_only(tab_lyr)
+                            # Update this version in history
+                            cur["versions"][i]["lyrics"] = improved
+                            st.rerun()
+                with b2:
+                    st.caption(f"Fidelity: {fidelity:.2f}")
+                
+                # Hook Quality Score (Always Visible for Hook Generator)
+                if cur.get('mode') == 'Hook Generator' and 'hook_score' in versions_data[i]:
+                    hs = versions_data[i]["hook_score"]
+                    hs_color = "🟢" if hs >= 0.8 else "🟡" if hs >= 0.6 else "🔴"
+                    st.markdown(f"**🎯 Hook Quality: {hs_color} {hs:.2f}**")
+                    
+                    # Detailed breakdown for debug (moved to sub-section)
+                    if debug_mode:
+                        with st.expander(f"📊 Score Breakdown ({hs:.2f})"):
+                            v_lines = _extract_hook(tab_lyr).split(" / ") if " / " in _extract_hook(tab_lyr) else tab_lyr.split("\n")
+                            from rag.validator import repetition_score, unique_word_ratio, keyword_strength_score
+                            st.write(f"- **Repetition Pattern:** {repetition_score(v_lines):.2f}")
+                            st.write(f"- **Variation Ratio:** {unique_word_ratio(v_lines):.2f}")
+                            st.write(f"- **Concrete Grounding:** {keyword_strength_score(v_lines):.2f}")
+                            if hs < 0.5:
+                                st.warning("Score penalized for excessive repetition or low variation.")
+                
+                st.divider()
+                        
+                lyrics_md = re.sub(r"(\[[^\]]+\])", r"**\1**", tab_lyr)
+                st.markdown(lyrics_md)
 
-        # Download + Copy
-        dl_col, cp_col = st.columns(2)
-        with dl_col:
-            st.download_button(
-                "⬇️ Download (.txt)", cur["lyrics"],
-                file_name=f"lyrics_{artist_label.replace(' + ','_').replace(' ','_')}.txt",
-                mime="text/plain", use_container_width=True,
-            )
-        with cp_col:
-            with st.expander("📋 Copy raw text"):
-                st.code(cur["lyrics"], language=None)
+                # Download + Copy
+                dl_col, cp_col = st.columns(2)
+                with dl_col:
+                    st.download_button(
+                        "⬇️ Download (.txt)", tab_lyr,
+                        file_name=f"lyrics_v{chr(65+i)}_{artist_label.replace(' + ','_').replace(' ','_')}.txt",
+                        mime="text/plain", use_container_width=True,
+                        key=f"dl_btn_{i}_{cur.get('_timestamp','')}"
+                    )
+                with cp_col:
+                    with st.expander("📋 Copy raw text"):
+                        st.code(tab_lyr, language=None)
+
 
         # ── Retrieved context ─────────────────────────────────────────────
         if show_context and cur.get("context"):

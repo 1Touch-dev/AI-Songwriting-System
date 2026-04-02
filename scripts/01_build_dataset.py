@@ -24,12 +24,21 @@ from tqdm import tqdm
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import importlib.util
 from utils.config import (
     CLEANED_SONGS_PATH,
     RAW_DIR,
     SONGS_PER_ARTIST,
     TARGET_ARTISTS,
 )
+
+def _load_fetcher():
+    root = Path(__file__).resolve().parent.parent
+    path = root / "scripts" / "05_fetch_artist.py"
+    spec = importlib.util.spec_from_file_location("fetch_artist", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 # ── Normalise artist names for matching ────────────────────────────────────
 
@@ -280,6 +289,61 @@ def main():
         for _, row in df.iterrows():
             f.write(json.dumps(row.to_dict(), ensure_ascii=False) + "\n")
     print(f"\nSaved → {CLEANED_SONGS_PATH}")
+
+def ingest_dynamic_artist(artist_name: str):
+    """
+    Hardened Ingestion Hook for UI.
+    1. Fetch from Genius (Hardened)
+    2. Clean and append to cleaned_songs.jsonl (Idempotent)
+    """
+    print(f"\n[DYNAMIC] Hardened Ingest for: '{artist_name}'")
+    
+    # 1. Fetch
+    fetcher = _load_fetcher()
+    # Use max_songs consistent with pipeline (20 for speed)
+    raw_path = fetcher.fetch_artist_songs(artist_name, max_songs=20)
+    
+    if not raw_path or not raw_path.exists():
+        print(f"[DYNAMIC] Ingestion FAILED for '{artist_name}'")
+        return False
+
+    with open(raw_path, "r", encoding="utf-8") as f:
+        raw_data = json.load(f)
+
+    # 2. Check for existing songs to avoid duplicates
+    existing_keys = set()
+    if CLEANED_SONGS_PATH.exists():
+        with open(CLEANED_SONGS_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    rec = json.loads(line)
+                    existing_keys.add(f"{rec['artist'].lower()}|||{rec['song'].lower()}")
+
+    new_rows = []
+    for item in raw_data:
+        key = f"{item['artist'].lower()}|||{item['song'].lower()}"
+        if key not in existing_keys:
+            new_rows.append({
+                "artist": item["artist"],
+                "song": item["song"],
+                "lyrics": item["lyrics"],
+                "genre": item.get("genre", "unknown"),
+                "year": item.get("year", None),
+                "chart_rank": None,
+            })
+    
+    if not new_rows:
+        print(f"[DYNAMIC] All {len(raw_data)} songs already exist in dataset. Skipping append.")
+        return True
+
+    # 3. Append to cleaned_songs.jsonl
+    CLEANED_SONGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CLEANED_SONGS_PATH, "a", encoding="utf-8") as f:
+        for row in new_rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            
+    print(f"[DYNAMIC] SUCCESS: Appended {len(new_rows)} new songs for '{artist_name}'")
+    return True
 
 
 if __name__ == "__main__":

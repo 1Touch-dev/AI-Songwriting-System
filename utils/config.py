@@ -111,12 +111,16 @@ BM25_K1 = 1.5                      # BM25 term frequency saturation
 BM25_B = 0.75                      # BM25 length normalisation
 
 # ── LLM reranking (optional, off by default — costs API credits) ───────────
-RERANK_ENABLED = False             # set True to enable LLM re-ranking
-RERANK_CANDIDATE_N = 12            # retrieve this many, re-rank, keep TOP_K
-RERANK_MODEL = "gpt-4.1-nano"           # simple ranking task — nano is sufficient
+RERANK_ENABLED = True              # set True to enable LLM re-ranking
+RERANK_CANDIDATE_N = 15            # retrieve this many, re-rank, keep TOP_K
+RERANK_MODEL = "gpt-4.1-mini"      # best balance of cost and judgment
+
+# ── Chorus Validation (Post-Processing) ────────────────────────────────────
+CHORUS_VALIDATION_ENABLED = True   # ZERO TOLERANCE rules (4-5 words, 3 lines)
+VALIDATOR_MODEL = "gpt-4.1-mini"
 
 # ── Prompt versioning ──────────────────────────────────────────────────────
-PROMPT_VERSION = "v3"              # bump when prompt template changes
+PROMPT_VERSION = "v4.2"            # strict chorus validator added
 
 # ── Style strength ─────────────────────────────────────────────────────────
 STYLE_STRENGTH_DEFAULT = 0.7       # 0.0 = loose inspiration, 1.0 = strict imitation

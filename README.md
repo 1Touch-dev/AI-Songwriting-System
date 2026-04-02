@@ -6,58 +6,42 @@ Generate original song lyrics in the style of any artist — or blend multiple a
 
 ## Architecture
 
-```
-Dataset → LLM Labeling → Chunking → Embeddings → FAISS Index
-                                                        ↓
-              User Input → Retrieval → Prompt Builder → LLM → Lyrics
+```mermaid
+graph TD;
+    A[User Theme + Artists] --> B[LLM Query Expansion];
+    B --> C[Multi-Query Hybrid Search];
+    C --> D[FAISS Vector Search];
+    C --> E[BM25 Keyword Search];
+    D --> F[Merge & De-dupe];
+    E --> F;
+    F --> G[LLM Reranker];
+    G --> H[Top-K Balanced Chunks];
+    H --> I[LLM Generator x 3 Parallel Threads];
+    I --> J[Chorus Validator];
+    J --> K[Fidelity Scoring];
+    K --> L[Final 3 Versions + Best Badge];
 ```
 
 | Step | Script | Description |
 |------|--------|-------------|
 | 1 | `scripts/01_build_dataset.py` | Load Genius dataset, filter artists, clean lyrics |
 | 2 | `scripts/02_label_songs.py` | LLM-extract structure + theme for each song |
-| 3 | `scripts/03_build_index.py` | Chunk by section, embed, build FAISS index |
-| UI | `frontend/app.py` | Streamlit web app |
+| 3 | `scripts/03_build_index.py` | Overhauled: Fixed 4-6 line chunks, FAISS + BM25 |
+| UI | `frontend/app.py` | High-Performance Streamlit Demo UI |
 
 ---
 
-## Quick Start
+## Quick Start (Demo Mode)
 
-### 1. Prerequisites
-
-- Python 3.10+
-- An `.env` file with your keys (already in place):
-  ```
-  OPENAI_API_KEY=sk-...
-  APIFY_API_TOKEN=apify_api_...   # optional
-  ```
-
-### 2. Create & activate virtual environment
-
+To launch the system instantly:
 ```bash
-cd "/Volumes/Seagate/AI Songwriting System"
-python3 -m venv venv
-source venv/bin/activate          # macOS / Linux
-# venv\Scripts\activate           # Windows
+streamlit run frontend/app.py
 ```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Run the full pipeline (one command)
-
-```bash
-python main.py
-```
-
-This runs all three pipeline steps in order, then opens the Streamlit UI.
+*Note: This assumed you have already built the FAISS index locally.*
 
 ---
 
-## Running Steps Individually
+## Running Backend Data Steps
 
 ```bash
 # Step 1 – Build dataset (~20 min, streams HuggingFace)
@@ -69,14 +53,6 @@ python scripts/02_label_songs.py
 # Step 3 – Build FAISS index  (~10–20 min for embeddings)
 #           Embedding cache in data/cache/ means re-runs skip already-embedded chunks
 python scripts/03_build_index.py
-
-# Step 4 – Evaluate  (runs 18 test prompts, saves evaluation/results.json)
-python scripts/04_evaluate.py
-
-# Launch UI only (after index is built)
-python main.py --ui-only
-# or
-streamlit run frontend/app.py
 ```
 
 ---
@@ -135,18 +111,15 @@ The pipeline will automatically merge chart rankings.
 
 ---
 
-## UI Features
+## Demo Features (V5.1)
 
-- **Artist dropdown** – select from 75 target artists
-- **Multi-artist mixing** – blend 2–4 artists
-- **Theme input** – describe emotion / topic
-- **Structure selector** – 5 presets + custom input
-- **Creativity slider** – controls LLM temperature (0.5–1.0)
-- **Retrieved context** – score bars, metadata, full chunk text
-- **Fallback warning** – banner when genre fallback was triggered
-- **Download + Copy** – save as `.txt` or copy raw text
-- **Generation history** – last 10 outputs stored in session
-- **Index status** – sidebar shows which pipeline steps are complete
+- **⚡ 1-Click Presets** – Instantly trigger polished demos (Drake, SZA).
+- **🏆 Best Version Identification** – Automated fidelity scoring picks the most authentic output.
+- **🎯 Smart Hook Extraction** – Prominent visual callout for the song's central hook.
+- **✨ Improve Hook Only** – Target specific sections for refinement without trashing context.
+- **⚡ Parallel Retrieval** – < 15s end-to-end latency via multi-query threading.
+- **⚖️ Artist Balancing** – Zero-bias blending for multi-artist collaborations.
+- **✅ Strict Chorus Validation** – Zero-tolerance enforcement of 3-line, rhythmic choruses.
 
 ---
 
@@ -156,7 +129,9 @@ The pipeline will automatically merge chart rankings.
 |-----------|-------------|
 | LLM labeling (~1500 songs) | $5–20 (one-time) |
 | Embeddings (~15 000 chunks) | $1–3 (one-time) |
-| Per generation | ~$0.01 |
+| Multi-Query & Reranking | ~$0.005 per run |
+| 3x Generation | ~$0.03 per run |
+| **Total Per Query** | **~$0.035** |
 
 ---
 

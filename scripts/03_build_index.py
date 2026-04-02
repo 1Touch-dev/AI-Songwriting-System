@@ -6,13 +6,14 @@ Step 4 & 5: Chunking → Embeddings → FAISS Index
 - Store vectors in a FAISS IndexFlatIP index
 - Store metadata alongside in chunks.jsonl + faiss_meta.jsonl
 
-Run: python scripts/03_build_index.py
+Run: python scripts/03_build_index.py [--append] [--artist "Artist Name"]
 """
 
 import json
 import os
 import re
 import sys
+import argparse
 import time
 from pathlib import Path
 
@@ -79,11 +80,39 @@ def split_into_sections(lyrics: str) -> list[dict]:
             label = "verse"
 
         section_counts[label] = section_counts.get(label, 0) + 1
-        sections.append({"label": f"{label}_{section_counts[label]}", "text": para})
+        
+        # Enforce 4-6 lines max
+        if len(lines) > 6:
+            # We skip the section header (e.g. "[Verse 1]") if present when chunking
+            start_idx = 1 if lines[0].startswith("[") and lines[0].endswith("]") else 0
+            body_lines = lines[start_idx:]
+            
+            chunk_size = 4
+            for i in range(0, len(body_lines), chunk_size):
+                slice_lines = body_lines[i : i + chunk_size]
+                if not slice_lines:
+                    continue
+                # If the last slice is just 1 or 2 lines, try to append it to the prev slice if possible, 
+                # but to keep it simple, we just emit it as is or pad it up to 6. Let's just emit slices of 4.
+                # A 6-line block already won't trigger this branch (len > 6).
+                # A 7-line block -> 4 + 3. 
+                # An 8-line block -> 4 + 4.
+                text_slice = "\n".join(slice_lines)
+                sections.append({"label": f"{label}_{section_counts[label]}_part{i//chunk_size + 1}", "text": text_slice})
+        else:
+            sections.append({"label": f"{label}_{section_counts[label]}", "text": para})
 
-    # If no split found, treat whole lyrics as one chunk
+    # If no split found, treat whole lyrics as one chunk (rare, but ensure it's chunked if huge)
     if not sections:
-        sections = [{"label": "full", "text": lyrics.strip()}]
+        lines = lyrics.strip().split("\n")
+        if len(lines) > 6:
+            chunk_size = 4
+            for i in range(0, len(lines), chunk_size):
+                slice_lines = lines[i : i + chunk_size]
+                if not slice_lines: continue
+                sections.append({"label": f"full_part{i//chunk_size + 1}", "text": "\n".join(slice_lines)})
+        else:
+            sections = [{"label": "full", "text": lyrics.strip()}]
 
     return sections
 
@@ -188,50 +217,91 @@ def build_faiss_index(vectors: np.ndarray) -> faiss.Index:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    parser = argparse.ArgumentParser(description="Build or append to FAISS index.")
+    parser.add_argument("--append", action="store_true", help="Append to existing index instead of rebuilding.")
+    parser.add_argument("--artist", type=str, help="Only process this artist (for dynamic ingestion).")
+    args = parser.parse_args()
+
     if not LABELED_SONGS_PATH.exists():
         print(f"[ERROR] {LABELED_SONGS_PATH} not found. Run 02_label_songs.py first.")
         sys.exit(1)
 
-    # Load labeled songs
+    # 1. Load labeled songs
     songs = []
     with open(LABELED_SONGS_PATH, encoding="utf-8") as f:
         for line in f:
             if line.strip():
-                songs.append(json.loads(line))
+                song = json.loads(line)
+                if args.artist:
+                    if song["artist"].lower() == args.artist.lower():
+                        songs.append(song)
+                else:
+                    songs.append(song)
+    
+    if not songs:
+        print(f"[ERROR] No results found for artist: {args.artist}") if args.artist else print("[ERROR] No labeled songs found.")
+        return
+
     print(f"Loaded {len(songs)} labeled songs.")
 
-    # Chunk
+    # 2. Chunk
     print("Chunking lyrics …")
     chunks = build_chunks(songs)
     print(f"  → {len(chunks)} chunks")
 
-    # Save chunks
-    with open(CHUNKS_PATH, "w", encoding="utf-8") as f:
-        for c in chunks:
-            f.write(json.dumps(c, ensure_ascii=False) + "\n")
-    print(f"  Saved chunks → {CHUNKS_PATH}")
+    # 3. Handle incremental logic (skip existing in metadata if appending)
+    existing_chunk_ids = set()
+    if args.append and FAISS_META_PATH.exists():
+        with open(FAISS_META_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    m = json.loads(line)
+                    existing_chunk_ids.add(m["chunk_id"])
+        
+        # Filter chunks to only new ones
+        initial_count = len(chunks)
+        chunks = [c for c in chunks if c["chunk_id"] not in existing_chunk_ids]
+        print(f"  → Filtered {initial_count - len(chunks)} existing chunks. {len(chunks)} new chunks to index.")
+    
+    if not chunks:
+        print("  [SKIP] No new chunks to add to the index.")
+        return
 
-    # Embed
+    # 4. Embed
     print("Embedding chunks …")
     vectors = embed_all_chunks(chunks)
     print(f"  → vectors shape: {vectors.shape}")
 
-    # Build FAISS index
-    print("Building FAISS index …")
-    index = build_faiss_index(vectors)
+    # 5. Build/Append FAISS index
+    faiss.normalize_L2(vectors)
+    if args.append and FAISS_INDEX_PATH.exists():
+        print(f"Appending to existing index: {FAISS_INDEX_PATH}")
+        index = faiss.read_index(str(FAISS_INDEX_PATH))
+        index.add(vectors)
+    else:
+        print(f"Building fresh index: {FAISS_INDEX_PATH}")
+        dim = vectors.shape[1]
+        index = faiss.IndexFlatIP(dim)
+        index.add(vectors)
+    
     FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(FAISS_INDEX_PATH))
     print(f"  Saved FAISS index → {FAISS_INDEX_PATH}")
 
-    # Save metadata (parallel to index rows)
-    with open(FAISS_META_PATH, "w", encoding="utf-8") as f:
+    # 6. Save metadata
+    mode = "a" if args.append else "w"
+    print(f"Saving metadata (mode={mode}) → {FAISS_META_PATH}")
+    with open(FAISS_META_PATH, mode, encoding="utf-8") as f:
         for c in chunks:
-            # Exclude the full text from meta to keep file lean; store it in chunks.jsonl
             meta = {k: v for k, v in c.items() if k != "text"}
             f.write(json.dumps(meta, ensure_ascii=False) + "\n")
-    print(f"  Saved FAISS metadata → {FAISS_META_PATH}")
+    
+    # 7. Append to chunks.jsonl
+    with open(CHUNKS_PATH, mode, encoding="utf-8") as f:
+        for c in chunks:
+            f.write(json.dumps(c, ensure_ascii=False) + "\n")
 
-    print("\nIndex build complete.")
+    print("\nIndex update complete.")
 
 
 if __name__ == "__main__":

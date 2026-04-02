@@ -1,0 +1,552 @@
+[
+  {
+    "input": {
+      "id": "QA_01",
+      "artists": [
+        "Drake"
+      ],
+      "theme": "Regret & Heartbreak",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]\nScrolling through your texts, I left a couple on read  \nYou hit me from the west side while I\u2019m still in my head  \nMercedes on King Street, that\u2019s the ghost of us parked  \nReflections in the city glass, but I\u2019m dodging the scars  \nYour perfume in my sweater, it\u2019s a battle I lost  \nYou called me after midnight, the weather matched my thoughts  \nThat night at the Ritz, we spilled secrets on rugs  \nNow it\u2019s Uber rides solo, just me and these shrugs  \nAll these bottles, all these models, nothing fills in the gap  \nToronto in November, yeah, it always comes back  \n\n[Chorus]\nIt's too late for apologies, but you linger in everything  \n\n[Verse 2]\nMy boys tell me \u201clet it go,\u201d but I\u2019m stuck on the screens  \nReposting old memories just to edit the scenes  \nYour lipstick on my glass, it\u2019s a crime in plain view  \nI traded all my silence for the hope you\u2019d come through  \nThat dinner at Sotto, you were staring at your phone  \nI was counting all the moments I should\u2019ve left you alone  \nBut pride got expensive, and I\u2019m rich in regret  \nYou got new stories, I got your ghost in my bed  \nThey say fame makes it easy\u2014I just text and erase  \nFlights out to L.A., just to run from your face  \n\n[Chorus]\nIt's too late for apologies, but you linger in everything  \n\n[Bridge]\nMaybe I flex too much, maybe love got taxed  \nToo many DMs unread, too few words I took back  \nIf I\u2019m honest with myself, you the only one I miss  \nTried to drown you in the club lights, but you rise through the mist  \nMansions feel hollow, the echoes sound like your laugh  \nDrizzy learned the hard way, some things you can't buy back  \n\n[Chorus]\nIt's too late for apologies, but you linger in everything  \n\n[Outro]\nCaught in this city, but I\u2019m missing your voice  \nRegret on the skyline\u2014yeah, it\u2019s always my choice",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.427,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.065,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.9,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.8
+      },
+      "overall": 0.715
+    },
+    "latency_ms": 13271,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_02",
+      "artists": [
+        "Kendrick Lamar"
+      ],
+      "theme": "Social Commentary",
+      "structure": "Verse 1 \u2192 Verse 2 \u2192 Chorus \u2192 Verse 3 \u2192 Chorus \u2192 Outro",
+      "strength": 0.9
+    },
+    "output": "[Verse 1]  \nCops cruise by in armor, little league kids duckin\u2019 chalk lines  \nMama count pennies, rent past due, pride tucked in a sock shrine  \nCorner store neon flicker\u2014welfare prayers in the window  \nPastor say sin\u2019s a riddle, but the liquor\u2019s still cold and simple  \nOld heads tell me history, but they whisper it, scars out loud  \nBroken glass in the alley\u2014sharp truths, nobody picking 'em out  \nMy uncle lost his job to a drone, now he\u2019s scrolling on his phone  \nWonders if revolution is code for \u201cleave me alone\u201d  \nThey sell hope in plastic bags, label it \u201cchange,\u201d tax it double  \nBut wisdom rides a bus\u2014late, overworked, and always humble  \n\n[Verse 2]  \nSingle mother, four shifts, dream stitched inside a lunchbox  \nShe pray for freedom, but the landlord steady picking deadbolts  \nThree punches on the clock, one for the system, the rest for the plot  \nSchoolyard flies a flag, but the anthem don\u2019t match what we got  \nNeighborhood watch look strange, patrol like we strangers  \nZip ties for the boys, a sermon for the danger  \nPoliticians talk in riddles, sellin\u2019 smoke for a signature  \nCity council paint the ghetto, call the color \u201cfamiliar\u201d  \nWords ricochet in chambers, echo lost in the smog  \nBut I swear I seen a revolution in the eyes of my dog  \n\n[Chorus]  \nHands up for tomorrow, but my shadow block the sunrise  \nThey tell me \u201cchange gon\u2019 come,\u201d but it circle back in disguise  \nWe wear our struggle like garments, hope stitched in the seams  \nStill, I chase peace down backstreets built from broken dreams  \n\n[Verse 3]  \nConcrete lullabies, babies rock to the siren\u2019s tune  \nFood stamps for dinner, sweet tea in a paper moon  \nProphets in the trap, sermons tagged under bridges  \nAuntie light sage for spirits, but the city still fidgets  \nElection season fever\u2014lawn signs, empty gestures  \nPotholes swallow promises, but never touch investors  \nMy cousin left the block, came back with a new tongue  \nSaid, \u201cThey buyin\u2019 trauma in bulk, so I sold \u2018em where I\u2019m from\u201d  \nLaws written in cursive, loopholes straight as a pipeline  \nThey teach us the hustle, but never show us the lifeline  \n\n[Chorus]  \nHands up for tomorrow, but my shadow block the sunrise  \nThey tell me \u201cchange gon\u2019 come,\u201d but it circle back in disguise  \nWe wear our struggle like garments, hope stitched in the seams  \nStill, I chase peace down backstreets built from broken dreams  \n\n[Outro]  \nSirens fade into lullabies, city hums in the rain  \nIf you searching for justice, count the cracks in the lane",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.312,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.055,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.8,
+        "structure_adherence": 0.3,
+        "overall_quality": 0.8
+      },
+      "overall": 0.658
+    },
+    "latency_ms": 18517,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_03",
+      "artists": [
+        "SZA"
+      ],
+      "theme": "Self-Doubt in Relationships",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nTalking to myself, mouth full of sunflower seeds  \nMessy hair, your sweater on backwards, nobody sees  \nYou say you love the way I question everything you mean  \nBut I read your silence in the corners, tuck it under my sleeve  \nWho taught me to swallow my feelings like vitamins, bitter and sweet?  \nCall your name in my head and it echoes too low  \nWhy you only brave with your phone in the dark?  \nI\u2019m counting your maybes like petals\u2014am I letting me go?  \nI wear all my doubt like a fragrance, but I still hope you\u2019ll know  \n\n[Chorus]  \nWish I could trust what you say, but it moves in waves  \nEvery time you reach, I flinch, I fade  \nYou hold me near, I disappear\u2014do you even notice me change?  \n\n[Verse 2]  \nYou leave little clues in the sink, cups you never rinse  \nSpill your secrets on my couch, then vanish when I catch a hint  \nLove songs in your playlist, but I\u2019m never in the verse  \nDo you miss me, or the comfort? Sometimes I can\u2019t tell which is worse  \nScroll past my texts, blue bubbles stacking like bills  \nWho am I tryna be so you\u2019ll stay\u2014or do I just stay still?  \nThat movie you love, I memorize lines, try to play your part  \nBut your eyes go glassy, and I feel myself drifting apart  \nMaybe it\u2019s me bending too much for someone who\u2019s scared of the start  \n\n[Chorus]  \nWish I could trust what you say, but it moves in waves  \nEvery time you reach, I flinch, I fade  \nYou hold me near, I disappear\u2014do you even notice me change?  \n\n[Bridge]  \nMaybe I talk too much, maybe I don\u2019t say the right things  \nMaybe your love is a mirror and I can\u2019t face what it brings  \nDo I sabotage soft mornings just to feel in control?  \nOr is it you who leaves the door open, waiting for me to fold?  \nIf I wore my heart outside, would you just walk right by?  \nOr would you finally see all the things I\u2019m too tired to hide?  \n\n[Chorus]  \nWish I could trust what you say, but it moves in waves  \nEvery time you reach, I flinch, I fade  \nYou hold me near, I disappear\u2014do you even notice me change?  \n\n[Outro]  \nWhisper my doubts in the shower, rinse and repeat  \nIf I vanish tonight, would you ever know it was me?",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.319,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.068,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.8,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.8
+      },
+      "overall": 0.69
+    },
+    "latency_ms": 9937,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_04",
+      "artists": [
+        "The Weeknd"
+      ],
+      "theme": "Late Night Loneliness",
+      "structure": "Intro \u2192 Verse 1 \u2192 Pre-Chorus \u2192 Chorus \u2192 Verse 2 \u2192 Pre-Chorus \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Intro]  \nHeadlights bleed down empty avenues  \nAshtray full, city pulse still humming  \nLiquor stains on my white reflection  \nMidnight\u2019s hungry, and I\u2019m the only one left\n\n[Verse 1]  \nNumb on my velvet couch, a half-dream flickers  \nPhone screen lit, your name swimming in static  \nShadows crawl slow, painting secrets on the ceiling  \nBreathing in perfume ghosts from last November  \nYou said I wore my devils like cologne\u2014  \nNow the silence wears Chanel  \nStacked bottles on the nightstand, gold and bitter  \nEchoes of your laughter curling up with the smoke  \nTrading sleep for memories that only get louder  \nHeart in the backseat, begging to forget\n\n[Pre-Chorus]  \nEvery mirror's got your fingerprints  \nCity\u2019s full but I feel transparent\n\n[Chorus]  \nLate night, I\u2019m talking to the dark again  \nLost in rooms you never walked in  \nIf you hear me, don\u2019t answer  \nJust let me drown in the after\n\n[Verse 2]  \nDesigner pills melt slow on my tongue  \nTV snow, but I\u2019m watching your silhouette  \nHeavy are the wrists when no one\u2019s waiting up  \nPlaying voicemails just to hear you lie sweet  \nCurtains drawn, the world don\u2019t want to see this  \nRed eyes steady, matching brake lights outside  \nYou left your lipstick on my cigarette  \nAnd now I taste regret, velvet-smooth and cold  \nCan\u2019t escape the echo of your footsteps  \nFloorboards moan, but you\u2019re nowhere at all\n\n[Pre-Chorus]  \nEvery mirror's got your fingerprints  \nCity\u2019s full but I feel transparent\n\n[Chorus]  \nLate night, I\u2019m talking to the dark again  \nLost in rooms you never walked in  \nIf you hear me, don\u2019t answer  \nJust let me drown in the after\n\n[Bridge]  \nI let the night bleed into my veins,  \nCounting confessions in the cracks of my crown  \nI call your name in a borrowed falsetto,  \nSounding like someone I don\u2019t recognize  \nLonely\u2019s expensive in this suite of mistakes  \nTruth\u2019s in the minibar, locked and untouched  \nMoonlight whispers promises I can\u2019t afford  \nBut dawn never leaves a tip\n\n[Chorus]  \nLate night, I\u2019m talking to the dark again  \nLost in rooms you never walked in  \nIf you hear me, don\u2019t answer  \nJust let me drown in the after\n\n[Outro]  \nGlass on the counter, your shadow on my chest  \nStreetlamps flicker out, but I\u2019m still awake",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.503,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.054,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.8,
+        "structure_adherence": 0.7,
+        "overall_quality": 0.8
+      },
+      "overall": 0.717
+    },
+    "latency_ms": 14186,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_05",
+      "artists": [
+        "Taylor Swift"
+      ],
+      "theme": "Nostalgic Storytelling",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.7
+    },
+    "output": "[Verse 1]  \nSummer of seventeen, windows down, highway one  \nYour Converse on my dashboard, laughter chasing the sun  \nWe stole peaches from the roadside stand, juice on your hands  \nYou drove too fast, radio up, that old Springsteen jam  \nYour mom\u2019s perfume clinging to your faded gray hoodie  \nYou said, \u201cLet\u2019s never change,\u201d as the salt kissed our skin  \nPulled over at the overlook, secrets written on foggy glass  \nLightning bugs in the glovebox, wishing the night would always last  \n\n[Chorus]  \nBut memories live in Polaroid corners  \nFolded in letters I never did send  \nA song that gets softer every September  \nI loved you in moments that won\u2019t come again  \n\n[Verse 2]  \nFall crept through the cracks\u2014sweaters and coffee stains  \nYour laugh echoing down empty bleachers after the game  \nWe mapped out the stars with frost on our breath  \nTracing the lines of \u201cforever\u201d with trembling hands  \nBlue ink on your wrist, promises nobody could read  \nYou left your old scarf in the backseat, it still smells like rain  \nI\u2019d call just to hear your voice\u2014nothing, then everything  \nBut autumn always steals what you think is yours to keep  \n\n[Chorus]  \nBut memories live in Polaroid corners  \nFolded in letters I never did send  \nA song that gets softer every September  \nI loved you in moments that won\u2019t come again  \n\n[Bridge]  \nNow the headlines change, and so do we  \nYou cross my mind on ordinary streets  \nEvery echo, every faded refrain  \nIs a ticket back to us in the rearview\u2014just out of reach  \n\n[Chorus]  \nBut memories live in Polaroid corners  \nFolded in letters I never did send  \nA song that gets softer every September  \nI loved you in moments that won\u2019t come again  \n\n[Outro]  \nAll that\u2019s left is dust on the dashboard and your ghost in the wind  \nI drive by our old summer, just to feel everything again",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.338,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.082,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.8,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.8
+      },
+      "overall": 0.693
+    },
+    "latency_ms": 6943,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_06",
+      "artists": [
+        "Drake",
+        "SZA"
+      ],
+      "theme": "Toxic Texting",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nYou screen my texts, then double tap my story\u2014petty moves,  \nTyping bubbles on a Wednesday, then you ghost, what\u2019s new?  \nI send a late night Uber, you reply with attitude,  \nScreenshots to your girls, they all rooting for my lose,  \nWest End silence, you at Soho House with some dude,  \nI left a voice note, half-drunk\u2014erased it, thought of you,  \nWhy\u2019s every message feel like a dare or a bruise?  \nYou say \u201cSeen,\u201d then I see you out, table for two.  \nI\u2019m tryna scroll past you, but you always come through,  \nYou\u2019re my bad signal, but I keep calling, too.\n\n[Chorus]  \nWhy we only talking when the tone turn blue?\n\n[Verse 2]  \nYou live to leave me on read, but you hate when I wait,  \nGot a burner account just to check if you straight,  \nMixing Sade with your playlists, you know my taste,  \nLaughed at my typo, you say autocorrect\u2019s fate,  \nMy phone like a stage, every word gotta play\u2014  \nApple Pay for your coffee, that\u2019s my modern bouquet,  \nI got receipts I never send, kept for a rainy day,  \nYou drop a meme with a side eye, I know what you say,  \nWe both in our feelings, but emojis in the way,  \nStill scrolling down your thread, no one else in my way.\n\n[Chorus]  \nWhy we only talking when the tone turn blue?\n\n[Bridge]  \nYou say \u201clet\u2019s be chill,\u201d but your WiFi always strong for me,  \nSignal always shaky when you want to let me be,  \nLeft on delivered, but I\u2019m stuck on your read,  \nDelete the thread, but we live in repeat,  \nI know your lock screen better than your momma do,  \nCan\u2019t keep it clean, but I can\u2019t mute you,  \nBurned through my data just to argue with you,  \nShould\u2019ve blocked you, but I like the d\u00e9j\u00e0 vu.\n\n[Chorus]  \nWhy we only talking when the tone turn blue?\n\n[Outro]  \nAll our love in the cloud, never comes through,  \nWon\u2019t say goodbye, just leave me on mute.",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.393,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.074,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.7,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.7
+      },
+      "overall": 0.658
+    },
+    "latency_ms": 8337,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_07",
+      "artists": [
+        "Kendrick Lamar",
+        "J. Cole"
+      ],
+      "theme": "The Burden of Success",
+      "structure": "Verse 1 \u2192 Verse 2 \u2192 Chorus \u2192 Verse 3 \u2192 Chorus \u2192 Outro",
+      "strength": 0.9
+    },
+    "output": "[Verse 1]  \nLiquor stains on the contract, fingerprints lingerin\u2019,  \nMama ironin\u2019 my shirt while I\u2019m iron-willed, simmerin\u2019\u2014  \nSee the city stretch its arms \u2018round my calendar,  \nStill the bills stack like sins, tryna balance her  \nVoice in the back: \u201cDon\u2019t let the gold choke you,\u201d  \nBasement ceiling memories, roaches in the Folgers too  \nSuccess feel like a debt owed to a ghost,  \nEvery handshake got a clause, every toast got a cost\u2014  \nHunger don't die, it just wearin' a new coat,  \nI\u2019m prayin\u2019 over plates, but my mind won\u2019t digest the note.\n\n[Verse 2]  \nEarly morning text sayin\u2019, \u201cBro, you next, don\u2019t slip,\u201d  \nBut the view up here\u2019s lonely, and the ledge don\u2019t grip  \nI seen brothers turn statues\u2014silent, motionless,  \nAin\u2019t no applause in the silence, just cold loneliness  \nFame got a shadow, keep steppin\u2019 on my heels,  \nEvery chain I purchase, add another set of steel  \nLabels talk in riddles, they mintin' my pain for bills,  \nMissed birthdays, missed calls, missed how freedom feels  \nI raise my glass, but I barely taste the thrill,  \nLove me for the art or the check\u2014what\u2019s real?\n\n[Chorus]  \nWeight on my neck, but the crown don\u2019t fit  \nLost in the glare, can\u2019t see who I\u2019m with  \nSuccess just a burden in a silk-wrapped myth  \nIf I climb any higher, do I still exist?\n\n[Verse 3]  \nUsed to be prayers missin\u2019 dinner, now it\u2019s fasting for peace,  \nAuntie say, \u201cKeep your soul, nephew, don\u2019t auction the lease\u201d  \nI see mirrors in the crowd, they reflecting my flaws,  \nCameras flashing, but the shutter just closing the doors  \nBrother called from the south, said the city miss my laugh,  \nBut the laughter feel hollow, echoin\u2019 from the past  \nTrophies on the mantle, dust thick as regret,  \nEvery win come with wounds I ain't bandaged yet  \nCoach told me, \u201cStay humble\u201d\u2014I grew roots on the bench,  \nNow I\u2019m starter for the league, but the game feel tense.\n\n[Chorus]  \nWeight on my neck, but the crown don\u2019t fit  \nLost in the glare, can\u2019t see who I\u2019m with  \nSuccess just a burden in a silk-wrapped myth  \nIf I climb any higher, do I still exist?\n\n[Outro]  \nCheck my pulse in the mirror\u2014who cashing my breath?  \nIf I\u2019m rich in the world, why I feel in debt?",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.465,
+        "context_diversity": 0.25,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.053,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.8,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.8
+      },
+      "overall": 0.709
+    },
+    "latency_ms": 10584,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_08",
+      "artists": [
+        "Travis Scott",
+        "The Weeknd"
+      ],
+      "theme": "Cinematic Excess",
+      "structure": "Verse 1 \u2192 Hook \u2192 Verse 2 \u2192 Hook \u2192 Hook \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nSilver screens in my rearview, city dusk in my veins  \nPhantom doors, suicide open, letting all the secrets hang  \nChandeliers in the lobby, but the ceiling\u2019s out the frame  \nShe got smoke in her lashes, whisper Cartier my name  \nStarboy in a maze, latex gloves on the glass  \nLeft my heart at the Mondrian, lost it thick in the flash  \nShadows drift on her shoulders, neon bleeding on her skin  \nWe chase the static in silence, every virtue feels like sin  \nPour another for the echo, double vision for the win  \n\n[Hook]  \nAll these lights, too loud for confession  \nRoom full of ghosts, but I dance with obsession  \nDiamond haze, bodies blurred in reflection  \nNight\u2019s a film, and I\u2019m lost in projection  \n\n[Verse 2]  \nMarble floors, but I\u2019m gliding, never touch \u2018em with my soul  \nShe draw blood on a mirror, thousand-dollar for control  \nPlastic roses in the basin, hollow gold in my grin  \nI got rooms without numbers, I forget where I begin  \nThe Weeknd on repeat, twilight taste in her hair  \nCinematic excess, but I fade when you stare  \nGucci ghosts in the closet, velvet gods in my dreams  \nWake up sweating ambition, but I drown in the cream  \nCredit karma on my conscience, but tonight, let it bleed  \n\n[Hook]  \nAll these lights, too loud for confession  \nRoom full of ghosts, but I dance with obsession  \nDiamond haze, bodies blurred in reflection  \nNight\u2019s a film, and I\u2019m lost in projection  \n\n[Hook]  \nAll these lights, too loud for confession  \nRoom full of ghosts, but I dance with obsession  \nDiamond haze, bodies blurred in reflection  \nNight\u2019s a film, and I\u2019m lost in projection  \n\n[Outro]  \nRoll the credits in silence, velvet curtain falls slow  \nBehind platinum curtains, my shadows still glow",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.526,
+        "context_diversity": 0.25,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.053,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.9,
+        "structure_adherence": 0.7,
+        "overall_quality": 0.8
+      },
+      "overall": 0.725
+    },
+    "latency_ms": 6027,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_09",
+      "artists": [
+        "Taylor Swift",
+        "Billie Eilish"
+      ],
+      "theme": "Growing Up Too Fast",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.7
+    },
+    "output": "[Verse 1]  \nBedroom with the navy walls, scratched initials on the closet door  \nMy sweater sleeves keep swallowing my hands, I\u2019m thirteen and bored  \nThere\u2019s a voicemail from my future self, she\u2019s humming in my ear  \nMom\u2019s perfume on the staircase, but I barely ever see her here  \nThe city buzzes past the blinds in pixel-colored light  \nI paint freckles on my arms to turn the bruises into polka dots tonight  \nWish I could staple down the seconds, but the clock\u2019s a hungry thief  \nGrew too tall for all my secrets, lost the map beneath my sheets  \n\n[Chorus]  \nI blink, and the years spill out like marbles on the kitchen floor  \nI whisper to the shadow in the mirror, \u201cplease\u2014just once\u2014slow down\u201d  \nMy voice is softer now, but my doubts are loud  \nSomewhere between a lullaby and a siren sound  \n\n[Verse 2]  \nSnapchat ghosts and faded friends, I scroll until my thumb goes numb  \nLaughter trapped in voice memos, can\u2019t believe how fast we come undone  \nDad\u2019s car keys on the counter, another grown-up word I shouldn\u2019t hear  \nI mouth along to midnight songs, syncing heartbeats with my fear  \nRemember June: I dyed my hair just to watch it fade away  \nPlaying dress-up in disaster, only real when I replay  \nEvery rush to be older leaves me running out of room  \nTrading sleep for stories that unravel in my empty afternoon  \n\n[Chorus]  \nI blink, and the years spill out like marbles on the kitchen floor  \nI whisper to the shadow in the mirror, \u201cplease\u2014just once\u2014slow down\u201d  \nMy voice is softer now, but my doubts are loud  \nSomewhere between a lullaby and a siren sound  \n\n[Bridge]  \nI sneak downstairs at 3 AM, just to prove the world\u2019s still spinning  \nStreetlights draw lines on my ceiling\u2014maybe growing up just means thinning  \nInvisible in my own sweatshirt, counting freckles, counting days  \nIf I could fold myself smaller, would the memories ever stay?  \n\n[Chorus]  \nI blink, and the years spill out like marbles on the kitchen floor  \nI whisper to the shadow in the mirror, \u201cplease\u2014just once\u2014slow down\u201d  \nMy voice is softer now, but my doubts are loud  \nSomewhere between a lullaby and a siren sound  \n\n[Outro]  \nIn the hush before the sunrise, I\u2019m just a secret in my skin  \nGrowing up too fast, or maybe just growing in",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.384,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.051,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.9,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.8
+      },
+      "overall": 0.695
+    },
+    "latency_ms": 9306,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_10",
+      "artists": [
+        "Bad Bunny"
+      ],
+      "theme": "Club Confidence",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus",
+      "strength": 0.8,
+      "language": "Spanish"
+    },
+    "output": "[Verse 1]  \nLuces bajitas, la disco encend\u00eda,  \nLlegu\u00e9 con flow pa' derretir la fr\u00eda,  \nBotellas arriba, el VIP en mi esquina,  \nTu jevo mirando, pero t\u00fa eres m\u00eda.  \nTatuajes brillan con el sudor del party,  \nT\u00fa bailas lento, nadie aqu\u00ed te compara,  \nGafas oscuras aunque ya no es de d\u00eda,  \nAqu\u00ed mandamos, los haters no tienen gu\u00eda.  \nHablan de m\u00ed, pero nunca me alcanzan,  \nCon paso seguro, la envidia se cansa.\n\n[Chorus]  \nNo hay competencia cuando piso el suelo,  \nT\u00fa y yo brillando m\u00e1s que los destellos,  \nAqu\u00ed se nota qui\u00e9n tiene el juego,  \nBaby, lo nuestro nunca fue un misterio.\n\n[Verse 2]  \nHasta el DJ pide foto y no lo niego,  \nCorro en la pista como si fuera juego,  \nCadenas de oro, sonrisa de fuego,  \nT\u00fa eres mi musa, yo soy tu despecho.  \nCero inseguro, conf\u00edo en mi reflejo,  \nLos falsos saludan pa\u2019 buscar consejo,  \nPero no hay truco, esto es puro talento,  \nLa noche es joven, y yo con mi acento.  \nTe acercas m\u00e1s, la vibra no miente,  \nSi miran feo, que sigan de frente.\n\n[Chorus]  \nNo hay competencia cuando piso el suelo,  \nT\u00fa y yo brillando m\u00e1s que los destellos,  \nAqu\u00ed se nota qui\u00e9n tiene el juego,  \nBaby, lo nuestro nunca fue un misterio.",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.417,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.066,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.9,
+        "structure_adherence": 1.0,
+        "overall_quality": 0.8
+      },
+      "overall": 0.74
+    },
+    "latency_ms": 9994,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_11",
+      "artists": [
+        "Nicki Minaj"
+      ],
+      "theme": "Competitive Fire",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nPink print on my wrist, competition get dismissed  \nI\u2019m the headline, you the pre-show, baby, peep the guest list  \nMirror-mirror, who the illest? Stiletto on your throat  \nChanel on my ambition, every bar is a note  \nThey throwin\u2019 little jabs, but I counter with a pose  \nPull up, face beat, attitude high, heaven knows  \nI\u2019m the villain in your story, but I rock the hero\u2019s cape  \nQuick switch, venom in the honey\u2014watch them double-take  \nStack the accolades, then ice out the safe  \nQueen move, checkmate, crowd scream, \u201cThat\u2019s my fave!\u201d\n\n[Chorus]  \nI\u2019m the reason they rehearse, I\u2019m the standard, it\u2019s a curse  \nStep up in the ring, they get nervous, do they worst  \nThey can talk, but I been flame \u2014 let \u2018em burst  \nNumber one and I ain\u2019t ever coming last, universe\n\n[Verse 2]  \nSignature on the line, red ink for my rivals  \nI don\u2019t chase, I replace, turn arrivals to survival  \nNeon in my bloodline, every flex make 'em twitch  \nI collect gold teeth, leave \u2018em biting on the switch  \nThey copy the persona but the blueprint missing pages  \nI been flipping scripts, while they stuck in minor stages  \nEvery tweet, every shade, only add to my parade  \nYou sellin\u2019 for a mention, I just renegotiate  \nI\u2019m the architect, honey, you just lay the bricks  \nDiamonds in my energy, you still playing pick-up sticks\n\n[Chorus]  \nI\u2019m the reason they rehearse, I\u2019m the standard, it\u2019s a curse  \nStep up in the ring, they get nervous, do they worst  \nThey can talk, but I been flame \u2014 let \u2018em burst  \nNumber one and I ain\u2019t ever coming last, universe\n\n[Bridge]  \nBaddest in the room, crown heavy, never slips  \nThey beg for an alliance just to get a little drip  \nI\u2019m the plot twist, label exec, and the myth  \nLaughing to the bank, pink smoke in the lift  \nTrophies on the dresser, every hater gets a mention  \nBut they never in my section, all they efforts get correction\n\n[Chorus]  \nI\u2019m the reason they rehearse, I\u2019m the standard, it\u2019s a curse  \nStep up in the ring, they get nervous, do they worst  \nThey can talk, but I been flame \u2014 let \u2018em burst  \nNumber one and I ain\u2019t ever coming last, universe\n\n[Outro]  \nCurtain call, lipstick print on the throne  \nCrowd chanting \u201cNicki\u201d as I ride home alone",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.443,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.058,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.7,
+        "structure_adherence": 0.4,
+        "overall_quality": 0.7
+      },
+      "overall": 0.641
+    },
+    "latency_ms": 9064,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_12",
+      "artists": [
+        "Frank Ocean"
+      ],
+      "theme": "Sparse Memory",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus",
+      "strength": 0.9
+    },
+    "output": "[Verse 1]  \nPlastic lawn chair, sweating out July,  \nCicadas buzz like static in my half-dream,  \nYou left your lighter in my glovebox, orange,  \nI guess that means you trusted me for a minute\u2014  \nMy neighbor\u2019s porch light blinks Morse code gossip,  \nNails bitten, tongue pressed to a chipped incisor,  \nYou said your memory worked like a scratched record,  \nSkipping the summers, sinking in bathtubs,  \nI tried to trace your name in condensation,  \nBut the window fogs over before I finish.\n\n[Chorus]  \nFading in, fading out\u2014your face in the living room flicker  \nCan\u2019t hold what drifts through, can\u2019t rewind,  \nI keep losing the color every time I remember.\n\n[Verse 2]  \nOld cable box counting seconds in blue digits,  \nMy uncle\u2019s shadow arguing with the wall\u2014  \nSalt from french fries, sweat from your wrist,  \nYou said, \u201cRemind me why we keep old birthday cards?\u201d  \nA shoe untied, radio static,  \nYour laugh echoing from another apartment\u2014  \nI forget the punchline, remember how you looked away,  \nHiding in plain sight, the night hums through the drywall,  \nWe borrow time from a calendar with pages torn out,  \nEvery soft erasure leaves a fingerprint.\n\n[Chorus]  \nFading in, fading out\u2014your face in the living room flicker  \nCan\u2019t hold what drifts through, can\u2019t rewind,  \nI keep losing the color every time I remember.",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.287,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.028,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.9,
+        "structure_adherence": 1.0,
+        "overall_quality": 0.9
+      },
+      "overall": 0.748
+    },
+    "latency_ms": 21099,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_13",
+      "artists": [
+        "Morgan Wallen"
+      ],
+      "theme": "Small Town Pride",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.7
+    },
+    "output": "[Verse 1]\nThere\u2019s a lonesome stretch of two-lane out past Miller\u2019s farm,  \nWhere the sun sets slow behind a line of leaning barns,  \nSame dirt under fingernails, same prayers before we eat,  \nWe carve our names in oak trees \u2018stead of city concrete.  \nMama\u2019s porch light\u2019s flickering, dogs bark down the road,  \nOld John Deere humming, hauling dreams I never sold.  \nThe diner\u2019s still serving coffee thick as midnight mud,  \nFolks talking high school glory, stories stick like blood.\n\n[Chorus]\nWe don\u2019t need neon, just a sky full of stars,  \nRaised on handshakes, sweat, and old Fords parked in yards,  \nEvery mile from here to anywhere else,  \nStill got that small town pride running through myself.\n\n[Verse 2]\nCousin\u2019s got a tackle box, granddad\u2019s got a flask,  \nEverybody\u2019s got a story, everybody\u2019s got a past.  \nWe fish the muddy river, hit the county fair each June,  \nTailgates down with \u201cFreebird\u201d singing out beneath the moon.  \nAin\u2019t in no hurry, we breathe slow round these parts,  \nWho needs city lights when you\u2019ve got lightning bugs and heart?  \nThe preacher\u2019s voice carries \u2018cross the old wood pews,  \nSundays in our best jeans, counting blessings, counting truths.\n\n[Chorus]\nWe don\u2019t need neon, just a sky full of stars,  \nRaised on handshakes, sweat, and old Fords parked in yards,  \nEvery mile from here to anywhere else,  \nStill got that small town pride running through myself.\n\n[Bridge]\nMaybe I\u2019ll wander, maybe I\u2019ll roam,  \nBut the sound of that red clay calling pulls me back home.  \nDust on my boots, that\u2019s just part of my name,  \nYou can dress up the boy, but the roots, they remain.  \nAll these winding roads, they always know me best\u2014  \nHome\u2019s not just a word, it\u2019s the gravel in my chest.\n\n[Chorus]\nWe don\u2019t need neon, just a sky full of stars,  \nRaised on handshakes, sweat, and old Fords parked in yards,  \nEvery mile from here to anywhere else,  \nStill got that small town pride running through myself.\n\n[Outro]\nSo here\u2019s to front porch nights and county lines,  \nHeart still beating to this hometown\u2019s rhymes.",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.403,
+        "context_diversity": 0.5,
+        "fallback_used": true,
+        "retrieval_path": "full_corpus"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.072,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.9,
+        "structure_adherence": 0.7,
+        "overall_quality": 0.8
+      },
+      "overall": 0.742
+    },
+    "latency_ms": 8731,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_14",
+      "artists": [
+        "Drake"
+      ],
+      "theme": "Life",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nFour texts from my mother, she sayin\u2019 I\u2019m distant  \nToronto nights cold, but the wrist got a glisten  \nUber black, riding solo, see my name in the system  \nTurned friends to advisors, now the vibe\u2019s inconsistent  \nChampagne stains on the tabletop, legacy talk  \nNo trophy on the shelf, just these flights that I chalk  \nScreenshots in the group chat, who real, who just watch  \nIn the mirror, got questions that I\u2019m scared to unlock  \nTwenty missed calls, but I\u2019m proud and I\u2019m stubborn  \nLife\u2019s movin\u2019 fast\u2014Drizzy never been one for runnin\u2019  \n\n[Chorus]  \nLife just movin\u2019 different, yeah,  \nToo many views from the distance, yeah  \n\n[Verse 2]  \nSecond bottle down, I\u2019m replying to old flames  \nTold the city I\u2019d make it, now I\u2019m dodgin\u2019 these claims  \nLate talks with my pops, sayin\u2019 \u201cson, keep your aim\u201d  \nBut the target keep movin\u2019\u2014that\u2019s the cost of the game  \nSpotify numbers lookin\u2019 healthy, but I\u2019m empty  \nDiamonds in the bezel, but the mind feelin\u2019 heavy  \nBooked flights to Dubai, but the mood never left me  \nStill see my day ones, but the convo\u2019s less friendly  \nSelfies with strangers, all the love feelin\u2019 rented  \nAt the top floor suite, wonderin\u2019 when I\u2019ll be contented  \n\n[Chorus]  \nLife just movin\u2019 different, yeah,  \nToo many views from the distance, yeah  \n\n[Bridge]  \nUsed to dream of these heights, now the roof feelin\u2019 closed  \nCan\u2019t tell if I\u2019m blessed or just stuck in my goals  \nEvery airport lounge, man, the silence expose  \nThat the moments I cherish are the ones no one knows  \nReminiscin\u2019 on summer, when the squad was together  \nNow we FaceTime our feelings, never say it in letters  \nTryna buy back my time, but it\u2019s never for sale  \nEvery lesson expensive, every memory frail  \n\n[Chorus]  \nLife just movin\u2019 different, yeah,  \nToo many views from the distance, yeah  \n\n[Outro]  \nLeft unread in my own life, scrollin\u2019 through seasons  \nIf you find me, let it be for the right reasons",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.431,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.07,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.7,
+        "structure_adherence": 0.5,
+        "overall_quality": 0.7
+      },
+      "overall": 0.651
+    },
+    "latency_ms": 10624,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_15",
+      "artists": [
+        "Billie Eilish"
+      ],
+      "theme": "Euphoric Sadness",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus",
+      "strength": 0.8
+    },
+    "output": "[Verse 1]  \nSleep in my sweater, it\u2019s colder at noon  \nQuiet confessions dissolve in my room  \nYou said I look happiest stuck on the ceiling  \nI\u2019m weightless and heavy, my head underwater  \nBruises from laughing, I tense when it\u2019s over  \nHeart skips a season, you text me, \"come over\"  \nI float in the static, the blue is electric  \nBreathing too loud, so I hush out the panic  \n\n[Chorus]  \nYou taste like fireworks after the rain  \nBittersweet thunder, soft on my veins  \nI shiver in color, but call it a phase  \nEuphoric sadness\u2014I\u2019m caught in the haze  \n\n[Verse 2]  \nSoap on my tongue, and your ghost in my mirror  \nI dance with my shadow, you\u2019re close but unclear  \nTracing the patterns you left in my bedsheets  \nI wish you were simple, I wish I was brave  \nWe laugh in the silence, we drown in the echo  \nYour eyes flicker gold when you say you could let go  \nMy hands full of secrets, my voice barely whisper  \nDizzy and bright, but I\u2019m sinking much quicker  \n\n[Chorus]  \nYou taste like fireworks after the rain  \nBittersweet thunder, soft on my veins  \nI shiver in color, but call it a phase  \nEuphoric sadness\u2014I\u2019m caught in the haze",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.296,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.052,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.9,
+        "coherence": 0.9,
+        "structure_adherence": 1.0,
+        "overall_quality": 0.9
+      },
+      "overall": 0.751
+    },
+    "latency_ms": 5654,
+    "status": "ok"
+  },
+  {
+    "input": {
+      "id": "QA_16",
+      "artists": [
+        "Kendrick Lamar"
+      ],
+      "theme": "Social Justice",
+      "structure": "Verse 1 \u2192 Chorus \u2192 Verse 2 \u2192 Chorus \u2192 Bridge \u2192 Chorus \u2192 Outro",
+      "strength": 1.0,
+      "extra": "Use complex internal rhymes and double entendres."
+    },
+    "output": "[Verse 1]  \nConcrete veins, heartbeat in the gridlock,  \nSirens serenade the faithless at dawn\u2014tick-tock.  \nBroken glass wisdom, every step a parable,  \nGraffiti prophets spray sermons, indelible.  \nMama said \u201cmarch soft,\u201d but the block got loud,  \nPrayers ricochet off steel, still hungry and proud.  \nRed and blue flash, silhouette on my shadow,  \nHistory written in chalk, lips zipped\u2014afraid to tattle.  \nI barter my smile for peace, but inflation high,  \nDevil deals in policies\u2014can\u2019t blink an eye.  \n\n[Chorus]  \nSee the fire in the eyes, smoke in the lungs,  \nTruth gets strangled by a silver tongue.  \nChain-linked freedom, they barter and trade,  \nJustice on layaway, debt never paid.  \n\n[Verse 2]  \nElevation in the alleys, we baptize in rain,  \nCop cars circle sermons, baptize in pain.  \nElders got stories, coded in Morse\u2014  \nEvery dash, every dot, genocide by force.  \nMy cousin\u2019s skin\u2014currency in a crooked game,  \nDistrict lines, zip-tied dreams, shackled by name.  \nReparations written with invisible ink,  \nCourthouses grin while my future shrink.  \nTwelve on the payroll, truth on suspension,  \nHope in detention, bars bred from intention.  \n\n[Chorus]  \nSee the fire in the eyes, smoke in the lungs,  \nTruth gets strangled by a silver tongue.  \nChain-linked freedom, they barter and trade,  \nJustice on layaway, debt never paid.  \n\n[Bridge]  \nWe the pulse in the panic, the ghost in the gavel,  \nHalf-mast flags, half-truths unravel.  \nMarch in the silence, drum on the sky,  \nInheritance of trauma\u2014don\u2019t ask why.  \nBlueprints of revolution inscribed in the marrow,  \nWe the children of the arrow who refuse the straight and narrow.  \nI see freedom dance on the tip of a match,  \nCold sweat on the badge, waiting for the catch.  \n\n[Chorus]  \nSee the fire in the eyes, smoke in the lungs,  \nTruth gets strangled by a silver tongue.  \nChain-linked freedom, they barter and trade,  \nJustice on layaway, debt never paid.  \n\n[Outro]  \nWhen sunrise feels foreign, we paint it familiar,  \nHistory repeats, but the voice gets peculiar.",
+    "metrics": {
+      "retrieval": {
+        "context_relevance": 0.297,
+        "context_diversity": 0.125,
+        "fallback_used": false,
+        "retrieval_path": "artist"
+      },
+      "generation": {
+        "structure_accuracy": 1.0,
+        "style_similarity": 0.034,
+        "repetition_score": 1.0
+      },
+      "judge": {
+        "faithfulness": 0.8,
+        "coherence": 0.7,
+        "structure_adherence": 0.6,
+        "overall_quality": 0.7
+      },
+      "overall": 0.644
+    },
+    "latency_ms": 22546,
+    "status": "ok"
+  }
+]

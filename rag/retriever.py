@@ -38,6 +38,7 @@ from typing import Optional
 import faiss
 import numpy as np
 import openai
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -62,6 +63,9 @@ from utils.config import (
     TOP_K,
     VECTOR_WEIGHT,
 )
+
+from utils.cache_utils import embedding_cache
+import concurrent.futures
 
 _oai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -140,7 +144,33 @@ class Retriever:
     genre fallback, optional LLM re-ranking, and retrieval diagnostics.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        top_k: int = TOP_K,
+        bm25_weight: float = BM25_WEIGHT,
+        vector_weight: float = VECTOR_WEIGHT,
+        rerank_enabled: bool = RERANK_ENABLED,
+        rerank_candidate_n: int = RERANK_CANDIDATE_N,
+    ):
+        self.top_k = top_k
+        self.bm25_weight = bm25_weight
+        self.vector_weight = vector_weight
+        self.rerank_enabled = rerank_enabled
+        self.rerank_candidate_n = rerank_candidate_n
+
+        self.reload()
+
+        # Warm the OpenAI client to avoid thread-safety issues with lazy imports
+        try:
+            _ = _oai_client.embeddings
+        except:
+            pass
+
+    def reload(self):
+        """
+        Reload the FAISS index, metadata, and BM25 indices from disk.
+        Useful after dynamic artist ingestion to update the in-memory state.
+        """
         if not FAISS_INDEX_PATH.exists():
             raise FileNotFoundError(
                 f"FAISS index not found at {FAISS_INDEX_PATH}. "
@@ -164,7 +194,7 @@ class Retriever:
                     self.chunks.append(json.loads(line))
 
         assert len(self.meta) == len(self.chunks), (
-            "Metadata/chunks count mismatch — rebuild the index."
+            f"Metadata ({len(self.meta)}) / chunks ({len(self.chunks)}) count mismatch — rebuild index."
         )
 
         # ── Reconstruct vectors for sub-index construction ────────────────
@@ -180,8 +210,10 @@ class Retriever:
         self._genre_idx: dict[str, list[int]] = defaultdict(list)
         for i, chunk in enumerate(self.chunks):
             self._artist_idx[_normalise_name(chunk["artist"])].append(i)
-            genre = chunk.get("genre", "").lower().strip() or \
-                    ARTIST_GENRE_MAP.get(chunk["artist"], "unknown").lower()
+            # Use artist_genre_map as fallback
+            genre = (chunk.get("genre") or "").lower().strip()
+            if not genre:
+                genre = ARTIST_GENRE_MAP.get(chunk["artist"], "unknown").lower()
             self._genre_idx[genre].append(i)
 
         self._artist_to_genre: dict[str, str] = {
@@ -191,14 +223,22 @@ class Retriever:
     # ── Embedding ──────────────────────────────────────────────────────────
 
     def _embed(self, text: str) -> np.ndarray:
-        """Return a normalised (1, D) float32 embedding."""
+        """Return a normalised (1, D) float32 embedding (with caching)."""
+        cached = embedding_cache.get(text)
+        if cached is not None:
+            return np.array(cached, dtype=np.float32).reshape(1, -1)
+
         for attempt in range(3):
             try:
                 resp = _oai_client.embeddings.create(
                     model=EMBEDDING_MODEL, input=[text]
                 )
-                vec = np.array(resp.data[0].embedding, dtype=np.float32).reshape(1, -1)
+                raw_vec = resp.data[0].embedding
+                vec = np.array(raw_vec, dtype=np.float32).reshape(1, -1)
                 faiss.normalize_L2(vec)
+                
+                # Cache the list format
+                embedding_cache.set(text, raw_vec)
                 return vec
             except openai.RateLimitError:
                 time.sleep(2 ** (attempt + 1))
@@ -223,29 +263,58 @@ class Retriever:
             return []
 
         # ── Vector scores via FAISS sub-index ─────────────────────────────
-        sub_vecs = self._vectors[candidate_indices]
-        sub_index = faiss.IndexFlatIP(sub_vecs.shape[1])
-        sub_index.add(sub_vecs)
-        k = min(len(candidate_indices), max(top_k, RERANK_CANDIDATE_N))
-        raw_scores, local_ids = sub_index.search(query_vec, k)
-
-        # Normalise vector scores to [0, 1] (they are cosine sims, already ≤ 1)
-        vec_map: dict[int, float] = {}
-        for score, lid in zip(raw_scores[0], local_ids[0]):
-            if lid >= 0:
-                orig = candidate_indices[lid]
-                vec_map[orig] = float(max(0.0, score))  # clamp negatives
+        def _get_vector_scores():
+            sub_vecs = self._vectors[candidate_indices]
+            sub_index = faiss.IndexFlatIP(sub_vecs.shape[1])
+            sub_index.add(sub_vecs)
+            k = min(len(candidate_indices), max(top_k, RERANK_CANDIDATE_N))
+            raw_scores, local_ids = sub_index.search(query_vec, k)
+            v_map = {}
+            for score, lid in zip(raw_scores[0], local_ids[0]):
+                if lid >= 0:
+                    orig = candidate_indices[lid]
+                    v_map[orig] = float(max(0.0, score))  # clamp negatives
+            return v_map
 
         # ── BM25 keyword scores ────────────────────────────────────────────
-        bm25_subset_indices = list(vec_map.keys())
-        kw_map = self._bm25.scores_for_subset(query_tokens, bm25_subset_indices)
+        def _get_kw_scores(subset_indices=None):
+            # If subset_indices provided, only score those. 
+            # In purely parallel mode, we might score ALL candidate_indices.
+            # But BM25 is fast, let's just score the candidate_indices filter directly.
+            target = subset_indices if subset_indices is not None else candidate_indices
+            return self._bm25.scores_for_subset(query_tokens, target)
+
+        # Execute BM25 and Vector in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            v_future = executor.submit(_get_vector_scores)
+            k_future = executor.submit(_get_kw_scores)
+            vec_map = v_future.result()
+            kw_map = k_future.result()
+
+        # ── Normalization ──────────────────────────────────────────────────
+        def _normalize(score_dict: dict[int, float]) -> dict[int, float]:
+            if not score_dict: return {}
+            vals = list(score_dict.values())
+            min_s = min(vals)
+            max_s = max(vals)
+            diff = max_s - min_s
+            if diff < 1e-8:
+                return {k: 1.0 for k in score_dict} # all equal -> all 1.0
+            return {k: (s - min_s) / diff for k, s in score_dict.items()}
+
+        vec_norm = _normalize(vec_map)
+        kw_norm = _normalize(kw_map)
 
         # ── Combine ────────────────────────────────────────────────────────
         results: list[tuple[float, float, float, int]] = []
         for orig_idx, vs in vec_map.items():
-            ks = kw_map.get(orig_idx, 0.0)
-            hybrid = VECTOR_WEIGHT * vs + BM25_WEIGHT * ks
-            results.append((hybrid, vs, ks, orig_idx))
+            vn = vec_norm.get(orig_idx, 0.0)
+            kn = kw_norm.get(orig_idx, 0.0)
+            # Normalize by total weights to ensure score is in [0, 1] range
+            w_total = self.vector_weight + self.bm25_weight
+            hybrid = (self.vector_weight * vn + self.bm25_weight * kn) / w_total if w_total > 0 else 0.0
+            hybrid = min(max(hybrid, 0.0), 1.0)
+            results.append((hybrid, vs, kn, orig_idx))
 
         results.sort(key=lambda x: x[0], reverse=True)
         return results
@@ -268,12 +337,14 @@ class Retriever:
         chunks_text = "\n\n".join(
             f"[{i+1}] {self.chunks[orig]['artist']} / {self.chunks[orig]['song']}:\n"
             f"{self.chunks[orig]['text'][:300]}"
-            for i, (_, _, _, orig) in enumerate(candidates[:RERANK_CANDIDATE_N])
+            for i, (_, _, _, orig) in enumerate(candidates[:self.rerank_candidate_n])
         )
 
         prompt = (
             f"Query: \"{query}\"\n\n"
-            f"Rate each lyric chunk's stylistic relevance to the query on a scale 1-10.\n"
+            f"Rate each lyric chunk based on: 1) Stylistic similarity, 2) Lyrical tone, and 3) Emotional match to the query.\n"
+            f"Prioritize artist-authentic chunks that feel like they belong in a professional song.\n"
+            f"Score on a scale of 1-10.\n"
             f"Respond ONLY with a JSON array of integers, one per chunk, in order.\n"
             f"Example: [7, 4, 9, 2, 6]\n\n"
             f"Chunks:\n{chunks_text}"
@@ -292,7 +363,7 @@ class Retriever:
             return candidates[:top_k]  # fall back silently
 
         reranked: list[tuple[float, float, float, int]] = []
-        for i, (hybrid, vs, ks, orig) in enumerate(candidates[:RERANK_CANDIDATE_N]):
+        for i, (hybrid, vs, ks, orig) in enumerate(candidates[:self.rerank_candidate_n]):
             llm_s = float(scores[i]) / 10.0 if i < len(scores) else 0.5
             new_hybrid = 0.6 * hybrid + 0.4 * llm_s
             reranked.append((new_hybrid, vs, ks, orig))
@@ -346,28 +417,40 @@ class Retriever:
         self,
         query: str,
         artists: Optional[list[str]] = None,
-        top_k: int = TOP_K,
+        top_k: Optional[int] = None,
+        vector_weight: Optional[float] = None,
+        bm25_weight: Optional[float] = None,
     ) -> list[dict]:
         """
         Retrieve top_k chunks using hybrid scoring.
-
-        Path priority:
-          1. artist-filtered sub-index
-          2. genre fallback (same genre as requested artists)
-          3. full corpus
-        Optional LLM re-ranking applied when RERANK_ENABLED=True.
         """
+        top_k = top_k or self.top_k
         query_vec = self._embed(query)
         query_tokens = _tokenise(query)
+        
+        orig_vw, orig_bw = self.vector_weight, self.bm25_weight
+        if vector_weight is not None: self.vector_weight = vector_weight
+        if bm25_weight is not None: self.bm25_weight = bm25_weight
 
         fallback_used: Optional[str] = None
         retrieval_path = "full_corpus"
-        candidate_n = RERANK_CANDIDATE_N if RERANK_ENABLED else top_k
+        candidate_n = self.rerank_candidate_n if self.rerank_enabled else top_k
 
         if artists:
             # ── Path 1: artist ────────────────────────────────────────────
-            artist_cands = self._artist_candidates(artists)
-            results = self._hybrid_search(query_vec, query_tokens, artist_cands, candidate_n)
+            if len(artists) > 1:
+                # Artist Balancing
+                results = []
+                per_artist_n = max(1, candidate_n // len(artists))
+                for a in artists:
+                    cands = self._artist_candidates([a])
+                    a_results = self._hybrid_search(query_vec, query_tokens, cands, per_artist_n)
+                    results.extend(a_results)
+                # Re-sort combined
+                results.sort(key=lambda x: x[0], reverse=True)
+            else:
+                artist_cands = self._artist_candidates(artists)
+                results = self._hybrid_search(query_vec, query_tokens, artist_cands, candidate_n)
 
             if len(results) >= MIN_CHUNKS_THRESHOLD:
                 retrieval_path = "artist"
@@ -399,10 +482,16 @@ class Retriever:
             results = self._hybrid_search(query_vec, query_tokens, all_cands, top_k)
 
         # ── Optional LLM re-ranking ────────────────────────────────────────
-        if RERANK_ENABLED and len(results) > top_k:
+        if self.rerank_enabled and len(results) > top_k:
             results = self._llm_rerank(query, results, top_k)
 
-        return self._format(results, top_k, retrieval_path, fallback_used)
+        out = self._format(results, top_k, retrieval_path, fallback_used)
+        
+        # Restore original weights
+        self.vector_weight = orig_vw
+        self.bm25_weight = orig_bw
+        
+        return out
 
     # ── Public: explain_retrieval ──────────────────────────────────────────
 
@@ -502,7 +591,7 @@ class Retriever:
             "artists_requested": artists or [],
             "retrieval_path": path,
             "fallback_reason": fallback_reason,
-            "rerank_enabled": RERANK_ENABLED,
+            "rerank_enabled": self.rerank_enabled,
             "artist_corpus_sizes": artist_sizes,
             "genre_corpus_sizes": genre_sizes,
             "chunks": annotated,
@@ -514,7 +603,8 @@ class Retriever:
         """Mean hybrid score of retrieved chunks — proxy for retrieval confidence."""
         if not chunks:
             return 0.0
-        return round(sum(c.get("score", 0.0) for c in chunks) / len(chunks), 4)
+        score = sum(c.get("score", 0.0) for c in chunks) / len(chunks)
+        return round(max(0.0, min(score, 1.0)), 4)
 
     def available_artists(self) -> list[str]:
         return sorted({c["artist"] for c in self.chunks})
