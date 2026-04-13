@@ -173,7 +173,7 @@ export default function StudioPage() {
                     max={32} 
                     min={4} 
                     step={4} 
-                    onValueChange={(val) => store.setBars(val[0])}
+                    onValueChange={(val) => store.setBars(Array.isArray(val) ? val[0] : val)}
                     className="py-2"
                   />
                </div>
