@@ -100,19 +100,27 @@ def show_pipeline_status(step: int):
 
 # ── Sidebar: Artist & Genre ────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://images.unsplash.com/photo-1514525253361-b83f859b73c0?q=80&w=1000", use_container_width=True)
+    # Removed broken image reference
     st.title("👨‍🎨 Studio Settings")
     
-    # Genius Autocomplete Logic
-    artist_query = st.text_input("Artist Search", placeholder="Type artist name...", autocomplete="off")
-    if len(artist_query) >= 3:
-        suggestions = search_genius_artists(artist_query)
-        if suggestions:
-            names = [s["name"] for s in suggestions]
-            selected = st.selectbox("Suggestions Found:", names)
-            if selected:
-                st.session_state.selected_artist_name = selected
-                st.success(f"Artist Selected: {selected}")
+    # Genius Autocomplete Logic (V3 Polish)
+    query = st.text_input("Artist Search", placeholder="Type artist name...", key="artist_query_input")
+
+    suggestions = []
+    if query and len(query) >= 3:
+        time.sleep(0.2)  # prevent API spam
+        suggestions = search_genius_artists(query)
+
+    if suggestions:
+        # Use selectbox as it supports typing + filtering natively
+        selected_artist = st.selectbox(
+            "Suggestions",
+            options=suggestions,
+            index=0
+        )
+        st.session_state.selected_artist_name = selected_artist
+    else:
+        st.session_state.selected_artist_name = query
 
     st.divider()
     
@@ -136,8 +144,8 @@ with st.sidebar:
         st.rerun()
 
 # ── Main Project Hub ───────────────────────────────────────────────────────
-st.title("🎧 James Music Studio V3")
-st.caption("Professional AI Songwriting, Voice Synthesis, and Full-Track Production")
+st.title("🎧 Global AI Music Studio")
+st.caption("AI Songwriting • Voice Synthesis • Music Generation")
 
 col_main, col_preview = st.columns([1.2, 1], gap="large")
 
