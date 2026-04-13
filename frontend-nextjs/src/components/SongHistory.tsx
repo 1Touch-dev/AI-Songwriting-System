@@ -19,10 +19,17 @@ import { Card, CardContent } from "@/components/ui/card";
 export function SongHistory() {
   const { history, setLyrics, setTheme, setArtists, setLanguage, setBars } = useStore();
 
+  // artists is stored as comma-separated string in SQLite
+  const parseArtists = (raw: any): string[] => {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === "string" && raw.length > 0) return raw.split(",").map((a) => a.trim());
+    return [];
+  };
+
   const loadSong = (song: any) => {
-    setTheme(song.theme);
-    setArtists(song.artists || []);
-    setLyrics(song.lyrics);
+    setTheme(song.theme || "");
+    setArtists(parseArtists(song.artists));
+    setLyrics(song.lyrics || "");
     setLanguage(song.language || "English");
     setBars(song.bars || 16);
   };
@@ -66,7 +73,7 @@ export function SongHistory() {
                           {song.theme || "Untitled Project"}
                         </h4>
                         <div className="flex flex-wrap gap-2 pt-1">
-                          {song.artists?.map((artist: string) => (
+                          {parseArtists(song.artists).map((artist: string) => (
                             <Badge key={artist} variant="secondary" className="bg-slate-800 text-[10px] py-0 px-2 h-5">
                               {artist}
                             </Badge>
