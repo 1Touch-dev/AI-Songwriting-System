@@ -75,7 +75,11 @@ pipeline = None
 @app.on_event("startup")
 def on_startup():
     global pipeline
-    init_db()
+    try:
+        init_db()
+        print("[STARTUP] Database initialized.")
+    except Exception as e:
+        print(f"[STARTUP ERROR] init_db failed: {e}")
     if not _PIPELINE_IMPORTABLE:
         print("[STARTUP] Skipping pipeline init (imports unavailable).")
         return
@@ -143,21 +147,44 @@ class SongSaveRequest(BaseModel):
     music_url: Optional[str] = None
 
 
+# --- Diagnostic Endpoint (remove after debugging) ---
+
+@app.get("/health/deep")
+async def deep_health(db: Session = Depends(get_db)):
+    """Returns detailed status of all subsystems for debugging."""
+    results: dict = {"db": "ok", "bcrypt": "ok", "pipeline": str(pipeline is not None)}
+    try:
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+    except Exception as e:
+        results["db"] = f"ERROR: {e}"
+    try:
+        from auth import get_password_hash
+        get_password_hash("test")
+    except Exception as e:
+        results["bcrypt"] = f"ERROR: {e}"
+    return results
+
+
 # --- Auth Endpoints ---
 
 @app.post("/auth/signup", response_model=UserResponse)
 async def signup(user_in: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user_in.email).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    new_user = User(
-        email=user_in.email,
-        hashed_password=get_password_hash(user_in.password),
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+    try:
+        db_user = db.query(User).filter(User.email == user_in.email).first()
+        if db_user:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        new_user = User(
+            email=user_in.email,
+            hashed_password=get_password_hash(user_in.password),
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return new_user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Signup failed: {type(e).__name__}: {e}")
 
 
 @app.post("/auth/login", response_model=Token)
@@ -165,15 +192,20 @@ async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    try:
+        user = db.query(User).filter(User.email == form_data.username).first()
+        if not user or not verify_password(form_data.password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token = create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {type(e).__name__}: {e}")
 
 
 @app.get("/auth/me", response_model=UserResponse)

@@ -48,13 +48,15 @@ ok "venv active: $VENV_DIR"
 echo ""
 echo "[3/9] Installing Python dependencies..."
 pip install --quiet --upgrade pip
+# Pin bcrypt to 4.0.1 — passlib 1.7.4 has a compatibility issue with bcrypt 4.1+
+pip install --quiet "bcrypt==4.0.1"
 pip install --quiet \
     fastapi uvicorn[standard] \
     sqlalchemy \
-    python-jose[cryptography] \
-    passlib[bcrypt] \
+    "python-jose[cryptography]" \
+    "passlib[bcrypt]" \
     python-dotenv \
-    pydantic[email] \
+    "pydantic[email]" \
     email-validator \
     python-multipart
 if [ -f "$PROJECT_DIR/requirements.txt" ]; then
