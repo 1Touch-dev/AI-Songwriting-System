@@ -1,40 +1,49 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useStore } from "@/store/useStore";
 import { ArtistSearch } from "@/components/ArtistSearch";
 import { LyricsOutput } from "@/components/LyricsOutput";
 import { AudioHub } from "@/components/AudioHub";
-import { generateLyrics } from "@/lib/api";
+import { generateLyrics, saveSong, getUserSongs } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
-import { Sparkles, History, Music, Mic, Layers, Settings2, Languages } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Sparkles, History, Music, Mic, Layers, Settings2, Languages, LogOut, Loader2 } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-
 import { SongHistory } from "@/components/SongHistory";
-import { saveSong, getUserSongs } from "@/lib/api";
 
 export default function StudioPage() {
+  const router = useRouter();
   const store = useStore();
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // --- Auth Guard ---
+  useEffect(() => {
+    if (!store.isAuthenticated) {
+      router.push("/login");
+    }
+  }, [store.isAuthenticated, router]);
+
   // Initial fetch of user history
-  React.useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const history = await getUserSongs();
-        store.setHistory(history);
-      } catch (err) {
-        console.error("Failed to fetch history:", err);
-      }
-    };
-    fetchHistory();
-  }, []);
+  useEffect(() => {
+    if (store.isAuthenticated) {
+      const fetchHistory = async () => {
+        try {
+          const history = await getUserSongs();
+          store.setHistory(history);
+        } catch (err) {
+          console.error("Failed to fetch history:", err);
+        }
+      };
+      fetchHistory();
+    }
+  }, [store.isAuthenticated]);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -56,8 +65,8 @@ export default function StudioPage() {
       store.setLyrics(result.lyrics);
       store.setVersions(result.versions || []);
 
-      // Auto-save to Supabase & History Store
-      const savedSong = await saveSong({
+      // Auto-save to SQLite (via FastAPI)
+      const saveRes = await saveSong({
         theme: store.theme,
         artists: store.selectedArtists,
         lyrics: result.lyrics,
@@ -66,8 +75,10 @@ export default function StudioPage() {
         creative_mode: store.creativeMode
       });
       
-      if (savedSong) {
-        store.addHistory(savedSong);
+      if (saveRes.status === "success") {
+        // Fetch history again to ensure UI is in sync
+        const history = await getUserSongs();
+        store.setHistory(history);
       }
     } catch (error) {
       console.error("Generation failed:", error);
@@ -76,6 +87,13 @@ export default function StudioPage() {
       store.setGenerating(false);
     }
   };
+
+  const handleLogout = () => {
+    store.logout();
+    router.push("/login");
+  };
+
+  if (!store.isAuthenticated) return null; // Prevents flashing
 
   return (
     <div className="flex flex-col h-screen bg-[#020617] text-slate-50 font-sans selection:bg-primary/30">
@@ -86,11 +104,18 @@ export default function StudioPage() {
             <Music className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-bold tracking-tight">Global AI Music Studio</h1>
-          <Badge variant="secondary" className="ml-2 bg-slate-800 text-xs text-slate-400 border-none px-2 py-0">v3.1.5</Badge>
+          <Badge variant="secondary" className="ml-2 bg-slate-800 text-xs text-slate-400 border-none px-2 py-0">v3.2.0 (JWT)</Badge>
         </div>
         <div className="flex items-center gap-4">
           <SongHistory />
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 border-2 border-slate-700 cursor-pointer shadow-lg"></div>
+          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-red-400 gap-2" onClick={handleLogout}>
+             <LogOut className="w-4 h-4" />
+             Logout
+          </Button>
+          <div className="flex items-center gap-2 pl-4 border-l border-slate-800">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-600 border border-slate-700 shadow-inner"></div>
+            <span className="text-xs font-medium text-slate-400 truncate max-w-[120px]">{store.user?.email}</span>
+          </div>
         </div>
       </header>
 
@@ -227,7 +252,3 @@ export default function StudioPage() {
     </div>
   );
 }
-
-import { Loader2 as LoaderIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { useStore as useStoreInstance } from "@/store/useStore";

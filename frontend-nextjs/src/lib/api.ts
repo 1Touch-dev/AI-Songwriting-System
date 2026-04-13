@@ -1,7 +1,17 @@
 import axios from 'axios';
+import { useStore } from '@/store/useStore';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+});
+
+// Request interceptor to attach JWT token
+api.interceptors.request.use((config) => {
+  const token = useStore.getState().token;
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 export const searchArtists = async (query: string) => {
@@ -24,41 +34,22 @@ export const generateMusic = async (lyrics: string, styleTags: string, title: st
   return data.audio_urls as string[];
 };
 
-import { supabase } from './supabase';
+// --- Custom JWT Persistence ---
 
 export const saveSong = async (song: any) => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data, error } = await supabase
-    .from('songs')
-    .insert([{ 
-      user_id: user.id,
-      theme: song.theme,
-      artists: song.artists,
-      lyrics: song.lyrics,
-      language: song.language,
-      bars: song.bars,
-      creative_mode: song.creative_mode,
-      created_at: new Date().toISOString()
-    }])
-    .select();
-
-  if (error) throw error;
-  return data[0];
+  const { data } = await api.post('/songs/save', { 
+    theme: song.theme,
+    artists: song.artists,
+    lyrics: song.lyrics,
+    audio_url: song.audio_url,
+    music_url: song.music_url
+  });
+  return data;
 };
 
 export const getUserSongs = async () => {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  const { data, error } = await supabase
-    .from('songs')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
+  const { data } = await api.get('/songs');
+  return data; // Array of song objects from SQLite
 };
 
 export default api;
