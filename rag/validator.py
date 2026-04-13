@@ -29,13 +29,12 @@ STRICT RULES (NO EXCEPTIONS)
 ----------------------------------------
 
 - Be EXACTLY 3 lines (ABSOLUTE REQUIREMENT)
-- Do NOT include more than 3 lines for the chorus
 - Each line MUST be 4-5 words ONLY
 - Use ONE central hook phrase
 - Hook MUST appear EXACTLY in line 1 and line 2
-- Line 3 MUST still reference the same hook (no drift)
-- All lines MUST have similar rhythm
-- No long phrases or explanations
+- Line 3 MUST be conceptually and lyrically different from Line 1. (ZERO hook repetition in Line 3).
+- Line 3 MUST resolve the thought, add a twist, or provide emotional contrast.
+- All lines MUST have similar rhythm.
 
 ----------------------------------------
 FAIL CONDITIONS (MANDATORY FIX)
@@ -43,38 +42,12 @@ FAIL CONDITIONS (MANDATORY FIX)
 
 If ANY of the following:
 - word count > 5 or < 4
-- hook not repeated exactly
-- rhythm mismatch
+- hook not repeated exactly in L1 and L2
+- Line 3 repeats the hook from L1/L2
+- Line 3 is too similar to Line 1 (>85% similarity)
 - vague or generic line
 
 -> YOU MUST REWRITE THE CHORUS COMPLETELY
-
-----------------------------------------
-REWRITE STRATEGY
-----------------------------------------
-
-- Keep same theme and emotion
-- Extract or infer a strong hook
-- Simplify aggressively
-- Prefer repetition over creativity
-- Make it sound like a real chorus
-
-----------------------------------------
-CRITICAL BEHAVIOR
-----------------------------------------
-
-Do NOT try to preserve flawed lines.
-If chorus is weak -> rewrite from scratch.
-
-----------------------------------------
-OUTPUT
-----------------------------------------
-
-Return FULL song.
-Replace ONLY the chorus sections.
-
-NO explanations. NO comments.
-If chorus is already perfect -> return unchanged.
 """
 
 # --- ANCHOR KEYWORDS ---
@@ -162,13 +135,15 @@ def score_hook(lines: list[str]) -> float:
     if len(lines) >= 2 and line_similarity(lines[0], lines[1]) < 0.8:
         score -= 0.3
         
-    # Line 3 too similar to Line 1 (Low variation)
-    if len(lines) >= 3 and line_similarity(lines[0], lines[3] if len(lines)>3 else lines[-1]) > 0.85:
-        score -= 0.3
+    # Line 3 too similar to Line 1 (Low variation) - CRITICAL FIX
+    if len(lines) >= 3:
+        target_line = lines[2] # Exactly line 3
+        if line_similarity(lines[0], target_line) > 0.85:
+            score -= 0.5 # Heavier penalty for variety failure
         
-    # Excessive repetition pattern
+    # Excessive repetition pattern (AA A)
     if all(l.lower() == lines[0].lower() for l in lines):
-        score = 0.1 # TOTAL FAILURE
+        score = 0.0 # TOTAL FAILURE
         
     return max(0.0, min(1.0, score))
 

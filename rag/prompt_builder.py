@@ -224,12 +224,11 @@ You MUST go beyond surface imitation. Mimic the artist's:
 CHORUS ENGINE (STRICT REINFORCEMENT)
 ----------------------------------------
 
-The chorus MUST follow these "Repeatable Rhythm" rules. Failure to do so will result in song rejection:
+The chorus MUST follow these "Repeatable Rhythm" rules:
 1. Hook Reinforcement: Use a central hook phrase. It MUST appear in Line 1 and Line 2 EXACTLY.
-2. 3-Line Absolute: The chorus MUST be exactly 3 lines. No more, no less.
-3. Word Density: Each line MUST contain exactly 4 to 5 words. DO NOT exceed 5 words.
-4. Singable Cadence: Use natural spoken rhythm.
-5. Hook Content: Hook must be an object, location, or timestamp.
+2. 3-Line Absolute: The chorus MUST be exactly 3 lines.
+3. Word Density: Each line MUST contain exactly 4 to 5 words.
+4. VARIETY RULE: Line 3 MUST be conceptually and lyrically different from Line 1. DO NOT repeat the hook in Line 3. Use Line 3 to resolve the thought or add a twist.
 
 Correct Example:
 [Chorus]
@@ -241,41 +240,18 @@ Stayed until the end
 ANTI-GENERIC RULES (MANDATORY)
 ----------------------------------------
 
-STRICTLY FORBIDDEN (Do NOT use these or similar):
+STRICTLY FORBIDDEN:
 - "I still rise," "now I glow," "stronger than before."
 - Any generic "broken heart" or "tears like rain" clichés.
 - Overly motivational or vague poetic filler.
 
-Every line must be GROUNDED in Conversational Realism:
-- Use concrete objects (e.g., specific drink brands, phone notification sounds, neighborhood names).
-- Use conversational details (e.g., "left a text on read," "cached your location in my maps").
-- Focus on emotional subtext: what the artist leaves UNSAID is often more powerful.
-
-----------------------------------------
-ADVANCED STYLE CONTROL
-----------------------------------------
-
-- INTERNAL RHYMES: Use subtle vowel-rhymes within lines where it fits the artist's flow.
-- IMPERFECT PHRASING: Use slightly irregular grammar or slang if it makes the line feel more like a real human's voice.
-- DYNAMIC DENSITY: Alternate between short, punchy thoughts and longer, flowing observations.
+Every line must be GROUNDED in Conversational Realism.
 
 ----------------------------------------
 RETRIEVAL USAGE
 ----------------------------------------
 
-You are given fragments from real songs. Use them EXCLUSIVELY to:
-- Study the artist's "voice" and "texture."
-- Capture the specific emotional logic they use to describe events.
-- DO NOT COPY any text from these fragments.
-
-----------------------------------------
-OUTPUT REQUIREMENT
-----------------------------------------
-
-Write complete, distinctive lyrics. Ensure:
-- No generic filler or "safe" choices.
-- Strong, unique stylistic identity.
-- Narrative progression or a clear emotional arc.
+You are given fragments from real songs. Use them EXCLUSIVELY to study voice and texture. DO NOT COPY text.
 """
 
 
@@ -288,13 +264,15 @@ def build_prompt(
     gender: str = "Neutral",
     bars: int = 16,
     reference_lyrics: str = "",
+    mode: str = "generate", # generate, continue, remix
+    perspective_mode: str = "same", # same, opposite, response
     extra_instructions: str = "",
     style_strength: float = 0.7,
     retrieval_quality: float = 0.5,
     analysis_mode: bool = False,
 ) -> tuple[str, str]:
     """
-    Build (system_prompt, user_prompt).
+    Build (system_prompt, user_prompt) for V3 Product Layer.
     """
     tier = _style_tier(style_strength)
     style_instruction = _STYLE_TIER_INSTRUCTIONS[tier]
@@ -342,18 +320,34 @@ Style inspiration should remain grounded in: {", ".join(artists)}.
 
     context_block = "\n\n---\n\n".join(context_lines) if context_lines else "(no examples retrieved)"
 
-    # Gender & Bars rules
-    gender_note = f"PERSPECTIVE: Write from a {gender} perspective. Adjust pronouns and tone accordingly."
-    bars_note = f"LENGTH CONSTRAINT: Ensure each verse is exactly {bars} lines (bars) long."
+    # --- Mode-specific Logic ---
+    mode_instruction = ""
+    if mode == "continue":
+        mode_instruction = f"CONTINUATION MODE: Extend the story/narrative from the provided [REFERENCE LYRICS] seamlessly. Maintain the exact same tone and flow."
+    elif mode == "remix":
+        mode_instruction = f"REMIX MODE: Rewrite the ideas in [REFERENCE LYRICS] with the same core theme but using entirely different wording, metaphors, and stylistic variations. A new 'take' on the old song."
+
+    # --- Perspective logic ---
+    perspective_instruction = ""
+    if perspective_mode == "opposite":
+        perspective_instruction = "PERSPECTIVE: Write from the OPPOSITE emotional perspective of the theme/reference. If the theme is regret, write from a place of defiance or indifference."
+    elif perspective_mode == "response":
+        perspective_instruction = "PERSPECTIVE: Write this as a RESPONSE to another character. Imagine the reference lyrics were a message sent to you, and you are replying in the artist's style."
+    else:
+        perspective_instruction = f"PERSPECTIVE: Write from a {gender} perspective, maintaining the primary point of view of the artist."
+
+    # --- Language Enforcement ---
+    lang_instruction = f"LANGUAGE: You MUST write ONLY in {language}. Do not mix languages unless explicitly part of the artist's style (like Spanglish for Bad Bunny). Enforce linguistic purity for {language}."
 
     user_prompt = f"""STYLE: {artist_str}
 THEME: {theme}
-LANGUAGE: {language}
-{gender_note}
-{bars_note}
+{lang_instruction}
+{mode_instruction}
+{perspective_instruction}
+LENGTH CONSTRAINT: Ensure each verse is exactly {bars} lines (bars) long.
 {f'ADDITIONAL NOTES: {extra_instructions}' if extra_instructions else ''}
 
-{f'REFERENCE LYRICS (Continue or Remix these): {reference_lyrics}' if reference_lyrics else ''}
+{f'REFERENCE LYRICS: \n{reference_lyrics}' if reference_lyrics else ''}
 
 {style_block}
 {rq_note}
@@ -367,7 +361,7 @@ LANGUAGE: {language}
 
 === TASK ===
 Write the lyrics following the format and style constraints above.
-Ensure language is {language} and maintains the artist's specific "voice".
+Ensure everything is fully localized into {language}.
 """
 
     return system_prompt, user_prompt

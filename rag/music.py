@@ -1,105 +1,75 @@
 import os
 import time
-import requests
-from typing import Optional, Dict, List
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
+from apify_client import ApifyClient
 
 load_dotenv()
 
 class MusicGenerator:
     """
-    Suno AI Music Generation wrapper.
-    Uses unofficial API architecture (e.g., suno-api or similar proxy).
+    Suno AI Music Generation wrapper using Apify.
+    Uses the tentortoise/suno-ai-generator actor for cost-effective production.
     """
     
-    def __init__(self, api_url: Optional[str] = None):
-        # Default to a common community endpoint if not provided
-        self.api_url = api_url or os.getenv("SUNO_API_URL", "http://localhost:3000")
-        self.enabled = bool(os.getenv("SUNO_ENABLED", "False").lower() == "true")
+    def __init__(self, api_token: Optional[str] = None):
+        self.api_token = api_token or os.getenv("APIFY_API_TOKEN")
+        self.enabled = bool(self.api_token is not None)
+        if self.enabled:
+            self.client = ApifyClient(self.api_token)
+        else:
+            self.client = None
+            print("[MUSIC] Apify token missing. Suno generation is DISABLED.")
 
-    def generate_music(self, lyrics: str, style_tags: str, title: str = "AI Generated Song") -> Optional[List[Dict]]:
+    def run_full_generation(self, lyrics: str, style_tags: str, title: str, attempts: int = 3) -> List[str]:
         """
-        Trigger Suno generation.
-        Returns a list of task objects (usually 2 versions per request).
+        Trigger Suno generation via Apify and return active audio URLs.
+        Includes a reliability layer with retries and timeout handling.
         """
-        if not self.enabled:
-            print("[MUSIC] Suno generation is DISABLED in .env.")
-            return None
+        if not self.enabled or not self.client:
+            return []
 
-        endpoint = f"{self.api_url}/api/custom_generate"
-        payload = {
+        # tentortoise/suno-ai-generator input schema
+        run_input = {
             "prompt": lyrics,
             "tags": style_tags,
             "title": title,
             "make_instrumental": False,
-            "wait_audio": False # Using polling for better async handling
+            "mv": "chirp-v3-0"
         }
 
-        try:
-            print(f"[MUSIC] Triggering Suno generation for: '{title}'...")
-            response = requests.post(endpoint, json=payload, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            
-            # The API usually returns a list of clips/tasks
-            if isinstance(data, list):
-                return data
-            return [data]
-        except Exception as e:
-            print(f"[MUSIC] Request failed: {e}")
-            return None
-
-    def poll_status(self, clip_ids: List[str], timeout: int = 120) -> List[Dict]:
-        """Poll the API until generation is complete or timeout reached."""
-        if not self.enabled: return []
-        
-        endpoint = f"{self.api_url}/api/get"
-        start_time = time.time()
-        
-        print(f"[MUSIC] Polling status for clips: {clip_ids}...")
-        while time.time() - start_time < timeout:
+        for i in range(attempts):
             try:
-                params = {"ids": ",".join(clip_ids)}
-                response = requests.get(endpoint, params=params)
-                data = response.json()
+                print(f"[MUSIC] Attempt {i+1}/{attempts}: Triggering Apify Suno Actor for: '{title}'...")
+                # Run the Actor and wait for it to finish (max 300s timeout)
+                run = self.client.actor("tentortoise/suno-ai-generator").call(
+                    run_input=run_input,
+                    timeout_secs=300 
+                )
                 
-                # Check if all targeted clips are complete/failed
-                all_done = True
-                for clip in data:
-                    status = clip.get("status")
-                    if status not in ["streaming", "complete", "failed"]:
-                        all_done = False
-                        break
+                # Fetch results from the run's dataset
+                urls = []
+                for item in self.client.dataset(run["defaultDatasetId"]).iterate_items():
+                    # The actor usually returns objects with 'audio_url' or 'audio_url_1'
+                    audio_url = item.get("audio_url") or item.get("audio_url_1") or item.get("audio_url_2")
+                    if audio_url:
+                        urls.append(audio_url)
                 
-                if all_done:
-                    return data
-                    
-                time.sleep(5) # Poll every 5 seconds
-            except Exception as e:
-                print(f"[MUSIC] Polling error: {e}")
-                time.sleep(5)
-                
-        print("[MUSIC] Polling timed out.")
-        return []
+                    # Fallback check
+                    if not urls and "result" in item:
+                       urls.append(item["result"])
 
-    def run_full_generation(self, lyrics: str, style_tags: str, title: str) -> List[str]:
-        """Helper to run the full flow and return a list of audio URLs."""
-        clips = self.generate_music(lyrics, style_tags, title)
-        if not clips:
-            return []
-            
-        clip_ids = [c["id"] for c in clips if "id" in c]
-        if not clip_ids:
-            return []
-            
-        # Wait for completion
-        results = self.poll_status(clip_ids)
-        
-        # Extract audio URLs
-        urls = []
-        for r in results:
-            url = r.get("audio_url")
-            if url:
-                urls.append(url)
+                if urls:
+                    return sorted(list(set(urls))) # Return unique URLs
                 
-        return urls
+                print(f"[MUSIC] Attempt {i+1} returned no URLs. Retrying...")
+                
+            except Exception as e:
+                print(f"[MUSIC] Attempt {i+1} failed: {e}")
+                if i < attempts - 1:
+                    time.sleep(5 * (i + 1)) # Exponential backoff
+                else:
+                    break
+
+        print("[MUSIC] All generation attempts exhausted.")
+        return []

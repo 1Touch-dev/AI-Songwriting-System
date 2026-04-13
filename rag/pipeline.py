@@ -167,7 +167,9 @@ Respond ONLY with valid JSON:
         temperature: float = GENERATION_TEMPERATURE,
         extra_instructions: str = "",
         style_strength: float = STYLE_STRENGTH_DEFAULT,
-        mode: str = "Full Song",
+        mode: str = "Full Song", # Generation section mode (Verse, Chorus, Full)
+        gen_mode: str = "generate", # Product mode (generate, continue, remix)
+        perspective_mode: str = "same", # POV mode (same, opposite, response)
         analysis_mode: bool = False,
     ) -> dict:
         """
@@ -175,7 +177,7 @@ Respond ONLY with valid JSON:
         """
         t_start = time.time()
 
-        # Adjust structure based on mode
+        # Adjust structure based on section mode
         if mode == "Chorus Only":
             structure = "Chorus"
         elif mode == "Verse Only":
@@ -199,6 +201,8 @@ Respond ONLY with valid JSON:
             "extra_instructions": extra_instructions,
             "style_strength": style_strength,
             "mode": mode,
+            "gen_mode": gen_mode,
+            "perspective_mode": perspective_mode,
             "analysis_mode": analysis_mode,
         }
 
@@ -278,6 +282,8 @@ Respond ONLY with valid JSON:
             gender=gender,
             bars=bars,
             reference_lyrics=reference_lyrics,
+            mode=gen_mode,
+            perspective_mode=perspective_mode,
             extra_instructions=extra_instructions,
             style_strength=style_strength,
             retrieval_quality=rq,
