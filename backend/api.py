@@ -38,11 +38,11 @@ app = FastAPI(
     version="3.1.0"
 )
 
-# CORS configuration
+# CORS configuration — credentials=False required when allow_origins=["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -54,7 +54,12 @@ pipeline: SongwritingPipeline = None
 def on_startup():
     global pipeline
     init_db()
-    pipeline = SongwritingPipeline()
+    try:
+        pipeline = SongwritingPipeline()
+    except Exception as e:
+        print(f"[WARNING] SongwritingPipeline failed to load: {e}")
+        print("[WARNING] Auth and history endpoints will work. Generate endpoints will return 503.")
+        pipeline = None
 
 # --- Pydantic Models ---
 
@@ -172,6 +177,8 @@ async def search_artists(q: str = Query(..., min_length=3), current_user: User =
 
 @app.post("/generate")
 async def generate_lyrics(req: GenerateRequest, current_user: User = Depends(get_current_user)):
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
         result = pipeline.run(
             artists=req.artists,
@@ -196,6 +203,8 @@ async def generate_lyrics(req: GenerateRequest, current_user: User = Depends(get
 
 @app.post("/generate-voice")
 async def generate_voice(req: VoiceRequest, current_user: User = Depends(get_current_user)):
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
         audio_bytes = pipeline.voice_gen.generate_voice(req.text, voice_id=req.voice_id)
         if not audio_bytes:
@@ -206,6 +215,8 @@ async def generate_voice(req: VoiceRequest, current_user: User = Depends(get_cur
 
 @app.post("/generate-music")
 async def generate_music(req: MusicRequest, current_user: User = Depends(get_current_user)):
+    if pipeline is None:
+        raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
         urls = pipeline.music_gen.run_full_generation(
             lyrics=req.lyrics,
