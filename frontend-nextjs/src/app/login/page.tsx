@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/store/useStore";
-import { loginUser } from "@/lib/auth";
+import { loginUser, getMe } from "@/lib/auth";
 import { Music, Lock, Mail, AlertCircle, Loader2, Wand2 } from "lucide-react";
 import Link from "next/link";
 
@@ -22,7 +22,9 @@ export default function LoginPage() {
     setError("");
     try {
       const data = await loginUser(email, password);
-      setAuth({ id: 0, email }, data.access_token);
+      // Fetch the real user profile using the new token
+      const userProfile = await getMe(data.access_token);
+      setAuth(userProfile, data.access_token);
       router.push("/");
     } catch (err: any) {
       const detail = err.response?.data?.detail;

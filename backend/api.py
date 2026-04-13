@@ -149,20 +149,6 @@ class SongSaveRequest(BaseModel):
 
 # --- Diagnostic Endpoint (remove after debugging) ---
 
-@app.get("/health/deep")
-async def deep_health(db: Session = Depends(get_db)):
-    """Returns detailed status of all subsystems for debugging."""
-    results: dict = {"db": "ok", "bcrypt": "ok", "pipeline": str(pipeline is not None)}
-    try:
-        db.execute(__import__("sqlalchemy").text("SELECT 1"))
-    except Exception as e:
-        results["db"] = f"ERROR: {e}"
-    try:
-        from auth import get_password_hash
-        get_password_hash("test")
-    except Exception as e:
-        results["bcrypt"] = f"ERROR: {e}"
-    return results
 
 
 # --- Auth Endpoints ---

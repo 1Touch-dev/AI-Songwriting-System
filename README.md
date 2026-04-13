@@ -5,11 +5,12 @@ Welcome to the Global AI Music Studio. This repository contains a professional, 
 ## Architecture
 - **Frontend**: Next.js 14 (App Router), Tailwind CSS, TypeScript, shadcn/ui.
 - **Backend**: FastAPI (Python 3.12), OpenAI (GPT-4o), ElevenLabs, Suno AI.
-- **Persistence**: Supabase (Auth & PostgreSQL).
+- **Authentication**: Custom JWT with Stateless Tokens.
+- **Database**: Local SQLite (`backend/users.db`) for Auth and History.
 
 ## Repository Structure
-- `/backend`: The core engine and FastAPI service.
-- `/frontend-nextjs`: The modern SaaS dashboard.
+- `/backend`: The core engine and FastAPI service with JWT protection.
+- `/frontend-nextjs`: The modern SaaS dashboard with integrated Auth flows.
 - `/docs`: Detailed setup and deployment guides.
 
 ## Quick Start (Local)
@@ -37,5 +38,4 @@ Required in both `/backend/.env` and `/frontend-nextjs/.env`:
 - `ELEVENLABS_API_KEY`
 - `APIFY_API_TOKEN`
 - `NEXT_PUBLIC_API_URL`
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `JWT_SECRET_KEY` (Required for Backend Auth)
