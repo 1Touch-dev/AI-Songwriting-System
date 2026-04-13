@@ -23,11 +23,44 @@ APIFY_TOKEN = os.getenv("APIFY_API_TOKEN")
 # --- UTILS ---
 
 def normalize_artist_name(name: str) -> str:
+    """Robust normalization: lowercase, strip, remove special chars, handle quotes."""
     if not name: return ""
+    # Strip quotes and whitespace
     name = name.strip().strip('"').strip("'")
-    name = re.sub(r"[^a-zA-Z0-9\s]", " ", name)
+    # Lowercase for consistency
+    name = name.lower()
+    # Remove everything except alphanumeric and spaces
+    name = re.sub(r"[^a-z0-9\s]", " ", name)
+    # Collapse multiple spaces
     name = " ".join(name.split())
     return name
+
+def get_canonical_artist(name: str) -> Optional[str]:
+    """Search Genius to find the most likely canonical artist name."""
+    if not GENIUS_TOKEN:
+        return name # Fallback to input
+    
+    try:
+        url = "https://api.genius.com/search"
+        headers = {"Authorization": f"Bearer {GENIUS_TOKEN}"}
+        params = {"q": name}
+        response = requests.get(url, headers=headers, params=params)
+        data = response.json()
+        
+        # Look for the first result that is actually a song with correct metadata
+        hits = data.get("response", {}).get("hits", [])
+        if not hits:
+            print(f"[INGEST] No Genius hits for '{name}'.")
+            return name
+        
+        # Extract the primary artist from the first result
+        # We prioritize exact names in the primary_artist field
+        best_match = hits[0]["result"]["primary_artist"]["name"]
+        print(f"[INGEST] Search resolution: '{name}' -> '{best_match}'")
+        return best_match
+    except Exception as e:
+        print(f"[INGEST] Search resolution failed for '{name}': {e}")
+        return name
 
 def clean_lyrics_text(text: str) -> str:
     if not text: return ""
@@ -86,27 +119,49 @@ def fetch_artist_songs(artist_input: str, max_songs: int = 20) -> Optional[Path]
         print("[ERROR] GENIUS_ACCESS_TOKEN or APIFY_API_TOKEN missing.")
         return None
 
-    raw_artist = artist_input
-    print(f"[INGEST] Starting hardened fetch: '{raw_artist}'...")
+    print(f"[INGEST] Starting hardened fetch process for: '{artist_input}'...")
     
-    # Primary Method: Apify
-    song_data = fetch_via_apify(raw_artist, max_songs=max_songs)
+    # 1. Resolve Canonical Name
+    canonical_artist = get_canonical_artist(artist_input)
+    search_queries = list(set([artist_input, canonical_artist, normalize_artist_name(artist_input)]))
     
-    # Fallback to lyricsgenius ONLY for metadata if Apify failed
+    song_data = []
+    
+    # 2. Strategy A: Multi-query Apify Fetch (Retry Logic)
+    for query in search_queries:
+        if not query: continue
+        print(f"[INGEST] Attempting Apify fetch with query: '{query}'")
+        data = fetch_via_apify(query, max_songs=max_songs)
+        if data:
+            song_data = data
+            break
+    
+    # 3. Strategy B: Lyricsgenius Fallback (Last Resort)
     if not song_data:
-        print("[INGEST] Apify found no songs. Falling back to lyricsgenius (risky)...")
-        import lyricsgenius
-        genius = lyricsgenius.Genius(GENIUS_TOKEN)
-        genius.verbose = False
-        res = genius.search_artist(raw_artist, max_songs=3)
-        if res:
-            for s in res.songs:
-                cleaned = clean_lyrics_text(s.lyrics)
-                if len(cleaned) > 200:
-                    song_data.append({"artist": res.name, "song": s.title, "lyrics": cleaned, "url": s.url})
+        print("[INGEST] Apify strategy failed for all queries. Falling back to lyricsgenius...")
+        try:
+            import lyricsgenius
+            genius = lyricsgenius.Genius(GENIUS_TOKEN)
+            genius.verbose = False
+            # Try once with canonical, once with raw
+            for query in [canonical_artist, artist_input]:
+                res = genius.search_artist(query, max_songs=3)
+                if res and res.songs:
+                    for s in res.songs:
+                        cleaned = clean_lyrics_text(s.lyrics)
+                        if len(cleaned) > 200:
+                            song_data.append({
+                                "artist": res.name, 
+                                "song": s.title, 
+                                "lyrics": cleaned, 
+                                "url": s.url
+                            })
+                    if song_data: break
+        except Exception as e:
+            print(f"[INGEST] Lyricsgenius fallback failed: {e}")
 
     if len(song_data) < 3:
-        print(f"[INGEST] FAILURE: Only {len(song_data)} songs found. Need 3.")
+        print(f"[INGEST] FAILURE: Only {len(song_data)} songs found. Minimal threshold (3) not met.")
         return None
 
     # Determine canonical artist name
