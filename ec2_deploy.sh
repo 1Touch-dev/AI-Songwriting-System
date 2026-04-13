@@ -29,6 +29,8 @@ echo "[1/9] Pulling latest code..."
 cd "$PROJECT_DIR" || fail "Project dir not found: $PROJECT_DIR"
 git fetch origin
 git checkout "$BRANCH"
+# Reset any locally modified generated files (e.g. package-lock.json from npm install)
+git checkout -- frontend-nextjs/package-lock.json 2>/dev/null || true
 git pull origin "$BRANCH"
 ok "Code up to date on branch: $BRANCH"
 

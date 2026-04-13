@@ -138,7 +138,7 @@ export default function StudioPage() {
                     <Languages className="w-3.5 h-3.5" />
                     Linguistic Tone
                  </Label>
-                 <Select value={store.language} onValueChange={(val) => store.setLanguage(val)}>
+                 <Select value={store.language} onValueChange={(val) => val && store.setLanguage(val)}>
                     <SelectTrigger className="bg-slate-900/50 border-slate-800">
                       <SelectValue placeholder="Language" />
                     </SelectTrigger>
