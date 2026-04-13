@@ -16,9 +16,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Sparkles, History, Music, Mic, Layers, Settings2, Languages } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+import { SongHistory } from "@/components/SongHistory";
+import { saveSong, getUserSongs } from "@/lib/api";
+
 export default function StudioPage() {
   const store = useStore();
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Initial fetch of user history
+  React.useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const history = await getUserSongs();
+        store.setHistory(history);
+      } catch (err) {
+        console.error("Failed to fetch history:", err);
+      }
+    };
+    fetchHistory();
+  }, []);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -36,8 +52,23 @@ export default function StudioPage() {
         gen_mode: store.creativeMode,
         perspective_mode: store.perspectiveMode
       });
+      
       store.setLyrics(result.lyrics);
       store.setVersions(result.versions || []);
+
+      // Auto-save to Supabase & History Store
+      const savedSong = await saveSong({
+        theme: store.theme,
+        artists: store.selectedArtists,
+        lyrics: result.lyrics,
+        language: store.language,
+        bars: store.bars,
+        creative_mode: store.creativeMode
+      });
+      
+      if (savedSong) {
+        store.addHistory(savedSong);
+      }
     } catch (error) {
       console.error("Generation failed:", error);
     } finally {
@@ -55,13 +86,10 @@ export default function StudioPage() {
             <Music className="w-5 h-5 text-white" />
           </div>
           <h1 className="text-xl font-bold tracking-tight">Global AI Music Studio</h1>
-          <Badge variant="secondary" className="ml-2 bg-slate-800 text-xs text-slate-400 border-none px-2 py-0">v3.1.0-beta</Badge>
+          <Badge variant="secondary" className="ml-2 bg-slate-800 text-xs text-slate-400 border-none px-2 py-0">v3.1.5</Badge>
         </div>
         <div className="flex items-center gap-4">
-           <Button variant="ghost" size="sm" className="text-slate-400 hover:text-white">
-            <History className="w-4 h-4 mr-2" />
-            My Songs
-          </Button>
+          <SongHistory />
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 border-2 border-slate-700 cursor-pointer shadow-lg"></div>
         </div>
       </header>

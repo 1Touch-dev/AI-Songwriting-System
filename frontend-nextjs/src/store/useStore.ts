@@ -18,11 +18,7 @@ interface SongState {
   referenceLyrics: string;
   
   // Generation Output
-  lyrics: string;
-  versions: SongVersion[];
-  vocalUrl: string | null;
-  musicUrls: string[];
-  isGenerating: boolean;
+  history: any[];
   
   // Setters
   setArtists: (artists: string[]) => void;
@@ -39,6 +35,8 @@ interface SongState {
   setVocalUrl: (url: string | null) => void;
   setMusicUrls: (urls: string[]) => void;
   setGenerating: (status: boolean) => void;
+  setHistory: (history: any[]) => void;
+  addHistory: (song: any) => void;
   reset: () => void;
 }
 
@@ -58,6 +56,7 @@ export const useStore = create<SongState>((set) => ({
   vocalUrl: null,
   musicUrls: [],
   isGenerating: false,
+  history: [],
   
   setArtists: (artists) => set({ selectedArtists: artists }),
   setTheme: (theme) => set({ theme }),
@@ -73,6 +72,8 @@ export const useStore = create<SongState>((set) => ({
   setVocalUrl: (vocalUrl) => set({ vocalUrl }),
   setMusicUrls: (musicUrls) => set({ musicUrls }),
   setGenerating: (isGenerating) => set({ isGenerating }),
+  setHistory: (history) => set({ history }),
+  addHistory: (song) => set((state) => ({ history: [song, ...state.history] })),
   reset: () => set({ 
     theme: "", 
     lyrics: "", 
