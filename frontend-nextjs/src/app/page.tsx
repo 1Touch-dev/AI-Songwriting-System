@@ -96,53 +96,62 @@ export default function StudioPage() {
   if (!store.isAuthenticated) return null; // Prevents flashing
 
   return (
-    <div className="flex flex-col h-screen bg-[#020617] text-slate-50 font-sans selection:bg-primary/30">
+    <div className="flex flex-col h-screen bg-[#050505] text-slate-100 font-sans selection:bg-neon-blue/30 relative overflow-hidden">
+      {/* Dynamic Background Glows */}
+      <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-neon-blue/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-neon-purple/5 rounded-full blur-[120px] pointer-events-none" />
+
       {/* Header */}
-      <header className="h-16 border-b border-slate-800 flex items-center justify-between px-8 bg-black/40 backdrop-blur-md z-10">
-        <div className="flex items-center gap-3">
-          <div className="bg-primary p-1.5 rounded-lg shadow-lg shadow-primary/20">
+      <header className="h-16 border-b border-white/5 flex items-center justify-between px-8 bg-black/40 backdrop-blur-xl z-20">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-neon-blue to-neon-purple flex items-center justify-center shadow-lg shadow-neon-blue/20">
             <Music className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Global AI Music Studio</h1>
-          <Badge variant="secondary" className="ml-2 bg-slate-800 text-xs text-slate-400 border-none px-2 py-0">v3.2.0 (JWT)</Badge>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight text-white leading-tight">Global AI Music Studio</h1>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none">V3.2.0 • Premium Production Hub</p>
+          </div>
         </div>
+        
         <div className="flex items-center gap-4">
           <SongHistory />
-          <Button variant="ghost" size="sm" className="text-slate-400 hover:text-red-400 gap-2" onClick={handleLogout}>
-             <LogOut className="w-4 h-4" />
-             Logout
-          </Button>
-          <div className="flex items-center gap-2 pl-4 border-l border-slate-800">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-600 border border-slate-700 shadow-inner"></div>
-            <span className="text-xs font-medium text-slate-400 truncate max-w-[120px]">{store.user?.email}</span>
+          <div className="h-4 w-px bg-white/10 mx-2" />
+          <div className="flex items-center gap-3 pr-2">
+            <span className="text-[11px] font-semibold text-slate-400 hidden md:block">{store.user?.email}</span>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
+                <Mic className="w-4 h-4 text-slate-500" />
+            </div>
           </div>
+          <Button variant="ghost" size="sm" className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors" onClick={handleLogout}>
+             <LogOut className="w-4 h-4" />
+          </Button>
         </div>
       </header>
 
       {/* Workspace */}
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden z-10">
         {/* Left Panel: Studio Config */}
-        <aside className="w-80 border-r border-slate-800 bg-[#020617] overflow-y-auto custom-scrollbar">
-          <div className="p-6 space-y-8">
-            <section className="space-y-4">
-              <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                <Mic className="w-3.5 h-3.5" />
+        <aside className="w-80 glass-panel border-y-0 border-l-0 overflow-y-auto custom-scrollbar">
+          <div className="p-8 space-y-10">
+            <section className="space-y-5">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                <Mic className="w-3 h-3 text-neon-blue" />
                 Artistic Engine
               </label>
               <ArtistSearch />
             </section>
 
-            <section className="space-y-6">
-               <div className="space-y-4">
-                 <Label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                    <Languages className="w-3.5 h-3.5" />
+            <section className="space-y-8">
+               <div className="space-y-5">
+                 <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Languages className="w-3 h-3 text-neon-blue" />
                     Linguistic Tone
                  </Label>
                  <Select value={store.language} onValueChange={(val) => val && store.setLanguage(val)}>
-                    <SelectTrigger className="bg-slate-900/50 border-slate-800">
+                    <SelectTrigger className="glass-input h-11 border-white/5 rounded-xl">
                       <SelectValue placeholder="Language" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="glass-panel border-white/10 rounded-xl">
                       <SelectItem value="English">English</SelectItem>
                       <SelectItem value="Spanish">Spanish</SelectItem>
                       <SelectItem value="French">French</SelectItem>
@@ -151,13 +160,13 @@ export default function StudioPage() {
                  </Select>
                </div>
 
-               <div className="space-y-4">
+               <div className="space-y-5">
                   <div className="flex justify-between items-center">
-                    <Label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                      <Layers className="w-3.5 h-3.5" />
+                    <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Layers className="w-3 h-3 text-neon-blue" />
                       Song Length
                     </Label>
-                    <span className="text-xs font-mono text-primary">{store.bars} bars</span>
+                    <span className="text-[11px] font-bold text-neon-blue tracking-tighter">{store.bars} BARS</span>
                   </div>
                   <Slider 
                     value={[store.bars]} 
@@ -165,19 +174,20 @@ export default function StudioPage() {
                     min={4} 
                     step={4} 
                     onValueChange={(val) => store.setBars(val[0])}
+                    className="py-2"
                   />
                </div>
 
-               <div className="space-y-4">
-                  <Label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                    <Settings2 className="w-3.5 h-3.5" />
+               <div className="space-y-5">
+                  <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] flex items-center gap-2">
+                    <Settings2 className="w-3 h-3 text-neon-blue" />
                     Creative Parameters
                   </Label>
                   <Select value={store.creativeMode} onValueChange={(val: any) => store.setCreativeMode(val)}>
-                    <SelectTrigger className="bg-slate-900/50 border-slate-800">
-                      <SelectValue placeholder="Mode" />
+                    <SelectTrigger className="glass-input h-11 border-white/5 rounded-xl">
+                      <SelectValue placeholder="Generation Mode" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="glass-panel border-white/10 rounded-xl">
                       <SelectItem value="generate">Generate New</SelectItem>
                       <SelectItem value="continue">Continue Story</SelectItem>
                       <SelectItem value="remix">Remix Style</SelectItem>
@@ -185,10 +195,10 @@ export default function StudioPage() {
                   </Select>
                   
                   <Select value={store.perspectiveMode} onValueChange={(val: any) => store.setPerspectiveMode(val)}>
-                    <SelectTrigger className="bg-slate-900/50 border-slate-800">
-                      <SelectValue placeholder="Perspective" />
+                    <SelectTrigger className="glass-input h-11 border-white/5 rounded-xl">
+                      <SelectValue placeholder="POV Logic" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="glass-panel border-white/10 rounded-xl">
                       <SelectItem value="same">Same POV</SelectItem>
                       <SelectItem value="opposite">Opposite POV</SelectItem>
                       <SelectItem value="response">Response Track</SelectItem>
@@ -200,50 +210,56 @@ export default function StudioPage() {
         </aside>
 
         {/* Center Panel: Lyrics Editor */}
-        <section className="flex-1 overflow-y-auto bg-black/20 custom-scrollbar">
-          <div className="max-w-3xl mx-auto p-12 space-y-12">
-            <div className="space-y-6">
+        <section className="flex-1 overflow-y-auto bg-black/10 custom-scrollbar">
+          <div className="max-w-3xl mx-auto p-12 lg:p-16 space-y-16">
+            <div className="space-y-8 animate-in fade-in slide-in-from-top-4 duration-700">
               <div className="flex items-center gap-4">
-                <span className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">1</span>
-                <h2 className="text-2xl font-semibold">Theme & Narrative</h2>
+                <span className="w-10 h-10 rounded-2xl bg-neon-blue/10 flex items-center justify-center text-neon-blue font-black text-sm border border-neon-blue/20">1</span>
+                <h2 className="text-3xl font-bold text-white tracking-tight">Theme & Narrative</h2>
               </div>
-              <Input 
-                placeholder="What is this song about?" 
-                className="h-14 bg-slate-900/40 border-slate-800 text-lg rounded-xl focus-visible:ring-primary/50"
-                value={store.theme}
-                onChange={(e) => store.setTheme(e.target.value)}
-              />
-              <Textarea 
-                placeholder="Paste reference lyrics or existing bars (optional)..." 
-                className="min-h-[120px] bg-slate-900/40 border-slate-800 rounded-xl focus-visible:ring-primary/50"
-                value={store.referenceLyrics}
-                onChange={(e) => store.setReferenceLyrics(e.target.value)}
-              />
+              
+              <div className="space-y-4">
+                 <Input 
+                  placeholder="What is this song about?" 
+                  className="glass-input h-16 text-xl px-6 rounded-2xl placeholder:text-slate-600 focus:ring-neon-blue/20"
+                  value={store.theme}
+                  onChange={(e) => store.setTheme(e.target.value)}
+                />
+                <Textarea 
+                  placeholder="Paste reference lyrics or existing bars (optional)..." 
+                  className="glass-input min-h-[160px] p-6 text-lg rounded-2xl placeholder:text-slate-600 focus:ring-neon-blue/20 resize-none leading-relaxed"
+                  value={store.referenceLyrics}
+                  onChange={(e) => store.setReferenceLyrics(e.target.value)}
+                />
+              </div>
             </div>
 
-            <div className="flex flex-col items-center gap-6">
-              <Button 
-                size="lg" 
-                className="h-16 px-12 rounded-full text-lg font-bold gap-3 shadow-2xl shadow-primary/20 transition-all active:scale-95"
-                onClick={handleGenerate}
-                disabled={isGenerating}
-              >
-                {isGenerating ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
-                Ignite Production
-              </Button>
-              <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Uses Hybrid RAG + GPT-4o Engine</p>
+            <div className="flex flex-col items-center gap-8 py-4">
+              <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-neon-blue to-neon-purple rounded-full blur opacity-25 group-hover:opacity-60 transition duration-1000 group-hover:duration-200"></div>
+                <Button 
+                  size="lg" 
+                  className="relative h-20 px-16 rounded-full text-xl font-black gap-4 transition-all active:scale-95 bg-black border border-white/10 hover:border-white/20 text-white shadow-2xl"
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? <Loader2 className="w-7 h-7 animate-spin text-neon-blue" /> : <Sparkles className="w-7 h-7 text-neon-blue" />}
+                  Ignite Production
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-500 uppercase tracking-[0.3em] font-black text-glow">Artificial Intelligence Synthesis Hub</p>
             </div>
 
-            <div className="pt-8">
+            <div className="pt-8 mb-20">
               <LyricsOutput />
             </div>
           </div>
         </section>
 
         {/* Right Panel: Production Playback */}
-        <aside className="w-80 border-l border-slate-800 bg-[#020617] p-6 overflow-y-auto custom-scrollbar">
-          <label className="text-xs font-bold text-slate-500 uppercase mb-6 flex items-center gap-2">
-            <Layers className="w-3.5 h-3.5" />
+        <aside className="w-80 glass-panel border-y-0 border-r-0 p-8 overflow-y-auto custom-scrollbar">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em] mb-10 block flex items-center gap-2">
+            <Layers className="w-3 h-3 text-neon-purple" />
             Workspace Output
           </label>
           <AudioHub />

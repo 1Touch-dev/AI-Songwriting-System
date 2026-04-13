@@ -55,23 +55,23 @@ export function ArtistSearch() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {selectedArtists.map((artist) => (
-          <Badge key={artist} variant="secondary" className="px-3 py-1 text-sm font-medium flex items-center gap-2">
+          <Badge key={artist} variant="secondary" className="px-3 py-1.5 text-xs font-semibold bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 transition-colors flex items-center gap-2 rounded-full">
             {artist}
             <X 
-              className="w-3 h-3 cursor-pointer hover:text-destructive" 
+              className="w-3.5 h-3.5 cursor-pointer hover:text-neon-blue transition-colors" 
               onClick={() => removeArtist(artist)}
             />
           </Badge>
         ))}
-        {selectedArtists.length === 0 && <span className="text-muted-foreground text-xs">No artists selected</span>}
+        {selectedArtists.length === 0 && <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest">No artists selected</span>}
       </div>
 
       <div className="relative">
-        <div className="relative">
-          <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
+        <div className="relative group">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-neon-blue transition-colors" />
           <Input
             placeholder="Search artists on Genius..."
-            className="pl-9 h-11"
+            className="glass-input pl-10 h-12 text-sm rounded-xl placeholder:text-slate-600"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -80,17 +80,17 @@ export function ArtistSearch() {
             onFocus={() => setShowDropdown(true)}
           />
           {loading && (
-            <Loader2 className="absolute right-3 top-3 w-4 h-4 animate-spin text-primary" />
+            <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-neon-blue" />
           )}
         </div>
 
         {showDropdown && suggestions.length > 0 && (
-          <div className="absolute z-50 w-full mt-1 bg-popover text-popover-foreground border rounded-md shadow-lg overflow-hidden">
-            <ul className="max-h-60 overflow-y-auto">
+          <div className="absolute z-50 w-full mt-2 glass-panel rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+            <ul className="max-h-60 overflow-y-auto custom-scrollbar">
               {suggestions.map((artist, idx) => (
                 <li
                   key={idx}
-                  className="px-4 py-3 text-sm hover:bg-accent hover:text-accent-foreground cursor-pointer transition-colors border-b last:border-0"
+                  className="px-5 py-3.5 text-sm font-medium text-slate-300 hover:bg-white/5 hover:text-white cursor-pointer transition-colors border-b border-white/5 last:border-0"
                   onClick={() => addArtist(artist)}
                 >
                   {artist}
