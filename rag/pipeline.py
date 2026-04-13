@@ -37,6 +37,8 @@ load_dotenv()
 from utils.cache_utils import expansion_cache
 from rag.retriever import Retriever
 from rag.prompt_builder import build_prompt
+from rag.voice import VoiceGenerator
+from rag.music import MusicGenerator
 from utils.config import (
     FALLBACK_TOP_K,
     GENERATION_MAX_TOKENS,
@@ -76,6 +78,8 @@ class SongwritingPipeline:
         self.retriever = Retriever()
         self._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._validator = ChorusValidator() if CHORUS_VALIDATION_ENABLED else None
+        self.voice_gen = VoiceGenerator()
+        self.music_gen = MusicGenerator()
 
     def _expand_query(self, artists: list[str], theme: str) -> dict:
         """Use LLM to generate expanded queries (with caching)."""
@@ -155,29 +159,19 @@ Respond ONLY with valid JSON:
         theme: str,
         structure: str,
         language: str = "English",
+        gender: str = "Neutral",
+        bars: int = 16,
+        reference_lyrics: str = "",
+        num_variants: int = 1,
         top_k: int = TOP_K,
         temperature: float = GENERATION_TEMPERATURE,
         extra_instructions: str = "",
         style_strength: float = STYLE_STRENGTH_DEFAULT,
         mode: str = "Full Song",
+        analysis_mode: bool = False,
     ) -> dict:
         """
         Run the full pipeline and return a result dict.
-
-        Returns
-        -------
-        dict:
-            lyrics               str
-            artists              list[str]
-            theme                str
-            structure            str
-            context              list[dict]   retrieved chunks
-            latency_ms           int
-            retrieval_fallback   bool
-            retrieval_quality    float        mean hybrid score 0-1
-            retrieval_diagnostics dict        path/fallback/counts
-            style_strength       float
-            prompt_version       str
         """
         t_start = time.time()
 
@@ -196,11 +190,16 @@ Respond ONLY with valid JSON:
             "theme": theme,
             "structure": structure,
             "language": language,
+            "gender": gender,
+            "bars": bars,
+            "reference_lyrics": reference_lyrics,
+            "num_variants": num_variants,
             "top_k": top_k,
             "temperature": temperature,
             "extra_instructions": extra_instructions,
             "style_strength": style_strength,
             "mode": mode,
+            "analysis_mode": analysis_mode,
         }
 
         # ── Parallel Query Expansion & Base Retrieval ─────────────────────
@@ -269,19 +268,35 @@ Respond ONLY with valid JSON:
             "top_scores": [round(c.get("score", 0), 4) for c in chunks[:3]],
         }
 
-        # ── Generate ──────────────────────────────────────────────────────
+        # ── Step 3: Prompt Building ───────────────────────────────────────
         system_prompt, user_prompt = build_prompt(
-            artists=artists, theme=theme, structure=structure,
-            retrieved_chunks=chunks, language=language,
-            extra_instructions=extra_instructions, style_strength=style_strength,
+            artists=artists,
+            theme=theme,
+            structure=structure,
+            retrieved_chunks=chunks,
+            language=language,
+            gender=gender,
+            bars=bars,
+            reference_lyrics=reference_lyrics,
+            extra_instructions=extra_instructions,
+            style_strength=style_strength,
             retrieval_quality=rq,
+            analysis_mode=analysis_mode,
         )
 
-        # Parallel generation of 3 versions (if desired, currently generating 1 per run 
-        # but easily hooked by frontend calling 3 times or parallel map here)
-        # To avoid changing the return dict heavily, we just generate 1 version since 
-        # frontend/app.py can trivially use threadpool itself. But wait! V5 specs want
-        # "Generate 3 Versions". We will do ThreadPool here to return `versions`.
+        if analysis_mode:
+            # Short-circuit for analysis
+            response = self._client.chat.completions.create(
+                model=GENERATION_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+            )
+            analysis = response.choices[0].message.content.strip()
+            return {"analysis": analysis, "latency_ms": int((time.time() - t_start) * 1000)}
+
+        # ── Step 4: Multi-variant Generation ──────────────────────────────
         versions = []
         last_error: Optional[Exception] = None
 
@@ -289,19 +304,21 @@ Respond ONLY with valid JSON:
         hook_variants = [
             "REQUISITE: Include a specific location anchor (street, city, or place).",
             "REQUISITE: Include a concrete object anchor (car, watch, bottle, or clothing).",
-            "REQUISITE: Include a specific time or seasonal anchor (midnight, morning, or day of week)."
-        ] if mode == "Hook Generator" else ["", "", ""]
+            "REQUISITE: Include a specific time or seasonal anchor (midnight, morning, or day of week).",
+            "REQUISITE: Include a weather-based anchor (rain, sun, fog).",
+            "REQUISITE: Include a sensory anchor (scent, sound, touch)."
+        ] if mode == "Hook Generator" else [""] * num_variants
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, num_variants)) as executor:
             futures = [
                 executor.submit(
                     self._generate_single, 
                     i, 
                     system_prompt, 
-                    user_prompt + f"\n\n{hook_variants[i]}", 
+                    user_prompt + (f"\n\n{hook_variants[i % 5]}" if mode == "Hook Generator" else ""), 
                     temperature
                 )
-                for i in range(3)
+                for i in range(num_variants)
             ]
             for future in concurrent.futures.as_completed(futures):
                 lyr, err = future.result()
@@ -378,11 +395,12 @@ Respond ONLY with valid JSON:
                     # Update score for validated version
                     best_v["hook_score"] = self._score_hook(validated_lyrics)
             lyrics = best_v["lyrics"]
-        else:
-            best_v = scored_versions[0] if scored_versions else {"lyrics": "", "style_fidelity": 0.0}
-            if CHORUS_VALIDATION_ENABLED and self._validator:
-                best_v["lyrics"] = self._validator.validate_and_fix(best_v["lyrics"])
-            lyrics = best_v["lyrics"]
+        if not scored_versions:
+             if last_error: raise last_error
+             raise RuntimeError("Generation failed: No versions produced.")
+
+        best_v = scored_versions[0]
+        lyrics = best_v["lyrics"]
 
         # ── Log ───────────────────────────────────────────────────────────
         log_generation(
@@ -397,14 +415,9 @@ Respond ONLY with valid JSON:
             prompt_version=PROMPT_VERSION,
         )
 
-        if last_error and not lyrics:
-            raise RuntimeError(
-                f"Generation failed after {MAX_RETRY_ATTEMPTS} attempts: {last_error}"
-            )
-
         return {
-            "lyrics": lyrics,  # primary 
-            "versions": scored_versions, # list of {"lyrics", "style_fidelity"}
+            "lyrics": lyrics,
+            "versions": scored_versions,
             "artists": artists,
             "theme": theme,
             "structure": structure,

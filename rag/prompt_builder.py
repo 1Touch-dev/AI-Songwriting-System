@@ -107,6 +107,8 @@ _STYLE_TIER_INSTRUCTIONS: dict[str, str] = {
 
 # ── Artist style fingerprints ─────────────────────────────────────────────
 
+# ── Artist style fingerprints ─────────────────────────────────────────────
+
 _STYLE_NOTES: dict[str, str] = {
     "Drake":             "introspective bars mixed with singing, braggadocious yet vulnerable, name-drops, melodic hooks",
     "Kendrick Lamar":    "dense internal rhymes, social/political commentary, polysyllabic wordplay, concept-driven",
@@ -126,6 +128,8 @@ _STYLE_NOTES: dict[str, str] = {
     "Lil Wayne":         "rapid-fire punchlines, multi-layered metaphors, wordplay-dense verse, ad-libs",
     "Nicki Minaj":       "aggressive flow switches, theatrical personas, sharp punchlines, pop hooks",
     "Cardi B":           "brash confidence, street authenticity, rhythmic punch, boastful themes",
+    "Brent Faiyaz":      "vulnerable toxic R&B, high-register vocals, cynical romanticism, layered harmonies",
+    "PinkPantheress":    "fast-paced UK garage beats, delicate vocals, nostalgic loops, short punchy songs",
     "Morgan Wallen":     "Southern drawl storytelling, rural imagery, whiskey/nostalgia themes, singalong choruses",
     "Coldplay":          "anthemic melodic rises, hope-in-darkness imagery, piano-driven feel, uplifting resolution",
     "Imagine Dragons":   "epic arena-rock swell, personal-demon battle, power-chorus anthems",
@@ -138,6 +142,7 @@ _GENRE_NOTES: dict[str, str] = {
     "rock":       "raw energy, power imagery, anthemic choruses, personal defiance",
     "country":    "storytelling, rural/heartland imagery, singalong hooks, twangy phrasing",
     "latin":      "reggaeton rhythm, Spanish/Spanglish, romantic or party themes",
+    "afrobeats":   "percussive polyrhythms, melodic pidgin hooks, vibrant energy, rhythmic repetition",
     "electronic": "hypnotic repetition, euphoric builds, minimal lyrics, drop-centric structure",
 }
 
@@ -280,20 +285,32 @@ def build_prompt(
     structure: str,
     retrieved_chunks: list[dict],
     language: str = "English",
+    gender: str = "Neutral",
+    bars: int = 16,
+    reference_lyrics: str = "",
     extra_instructions: str = "",
     style_strength: float = 0.7,
     retrieval_quality: float = 0.5,
+    analysis_mode: bool = False,
 ) -> tuple[str, str]:
     """
     Build (system_prompt, user_prompt).
-
-    Parameters
-    ----------
-    style_strength    : 0.0 (loose inspiration) → 1.0 (strict imitation)
-    retrieval_quality : mean hybrid score of retrieved chunks (0-1)
     """
     tier = _style_tier(style_strength)
     style_instruction = _STYLE_TIER_INSTRUCTIONS[tier]
+
+    if analysis_mode:
+        system_prompt = f"""You are an ELITE Lyrical Analyst. 
+Your task is to analyze the provided lyrics and provide:
+1. THEMES: Core concepts explored.
+2. EMOTIONS: Primary feelings conveyed.
+3. VERSE IDEAS: Specific suggestions for new verses.
+4. ALTERNATIVE PERSPECTIVES: How another character might view these events.
+
+Style inspiration should remain grounded in: {", ".join(artists)}.
+"""
+        user_prompt = f"Analyze the following lyrics:\n\n{reference_lyrics}"
+        return system_prompt, user_prompt
 
     system_prompt = _SYSTEM_BASE.format(
         prompt_version=PROMPT_VERSION,
@@ -314,52 +331,43 @@ def build_prompt(
     # Chorus pattern hint
     chorus_hint = _detect_chorus_pattern(retrieved_chunks)
 
-    # Retrieved context (dedup by song)
+    # Context block
     context_lines: list[str] = []
-    seen: set[str] = set()
+    seen = set()
     for chunk in retrieved_chunks:
         key = f"{chunk['artist']}|||{chunk['song']}"
-        if key in seen:
-            continue
+        if key in seen: continue
         seen.add(key)
-        fb = f" [fallback: {chunk['fallback']}]" if chunk.get("fallback") else ""
-        score_line = (
-            f"[{chunk['artist']} / {chunk['song']} / {chunk.get('section', '')}]"
-            f"  score={chunk.get('score', 0):.3f}"
-            f"  (vec={chunk.get('vector_score', 0):.3f}, kw={chunk.get('keyword_score', 0):.3f})"
-            f"{fb}"
-        )
-        context_lines.append(f"{score_line}\n{chunk['text']}")
+        context_lines.append(f"[{chunk['artist']} / {chunk['song']}]\n{chunk['text']}")
 
-    context_block = (
-        "\n\n---\n\n".join(context_lines)
-        if context_lines else "(no examples retrieved — rely on artist knowledge)"
-    )
+    context_block = "\n\n---\n\n".join(context_lines) if context_lines else "(no examples retrieved)"
 
-    user_prompt = f"""STYLE: {artist_str}  [style_strength={style_strength:.2f}, tier={tier}]
-STRUCTURE: {structure}
-THEME / TONE: {theme}
+    # Gender & Bars rules
+    gender_note = f"PERSPECTIVE: Write from a {gender} perspective. Adjust pronouns and tone accordingly."
+    bars_note = f"LENGTH CONSTRAINT: Ensure each verse is exactly {bars} lines (bars) long."
+
+    user_prompt = f"""STYLE: {artist_str}
+THEME: {theme}
 LANGUAGE: {language}
-{f'ADDITIONAL NOTES: {extra_instructions}' if extra_instructions.strip() else ''}
+{gender_note}
+{bars_note}
+{f'ADDITIONAL NOTES: {extra_instructions}' if extra_instructions else ''}
+
+{f'REFERENCE LYRICS (Continue or Remix these): {reference_lyrics}' if reference_lyrics else ''}
 
 {style_block}
-{f'{rq_note}' if rq_note else ''}
-{f'{chorus_hint}' if chorus_hint else ''}
+{rq_note}
+{chorus_hint}
 
 === REQUIRED OUTPUT FORMAT ===
-Write the song EXACTLY in this section order:
-
 {output_template}
 
-=== RETRIEVED STYLE EXAMPLES (study for style only — do NOT copy) ===
-
+=== RETRIEVED STYLE EXAMPLES ===
 {context_block}
 
 === TASK ===
-Write the complete, original song following the format above.
-Every section label must appear on its own line as [Section Name].
-The chorus/hook must be identical each time it appears.
-Capture the authentic style of {artist_str}.
+Write the lyrics following the format and style constraints above.
+Ensure language is {language} and maintains the artist's specific "voice".
 """
 
     return system_prompt, user_prompt
