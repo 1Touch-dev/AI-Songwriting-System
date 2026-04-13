@@ -144,11 +144,12 @@ ok "Node.js $(node -v) ready"
 
 cd "$FRONTEND_DIR"
 
-# Write .env.local pointing to EC2 backend
-cat > .env.local << EOF
-NEXT_PUBLIC_API_URL=http://${EC2_IP}:8000
+# Use /backend proxy path — Next.js rewrites to localhost:8000 server-side.
+# This eliminates CORS entirely; browser never talks directly to port 8000.
+cat > .env.local << 'EOF'
+NEXT_PUBLIC_API_URL=/backend
 EOF
-ok "Frontend .env.local set to http://${EC2_IP}:8000"
+ok "Frontend .env.local set to /backend (proxied via Next.js rewrites)"
 
 # Install npm deps and build
 npm install --silent
