@@ -25,7 +25,14 @@ export default function LoginPage() {
       setAuth({ id: 0, email }, data.access_token);
       router.push("/");
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Invalid email or password. Please try again.");
+      const detail = err.response?.data?.detail;
+      if (typeof detail === "string") {
+        setError(detail);
+      } else if (err.message) {
+        setError(`Network error: ${err.message}`);
+      } else {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setIsLoading(false);
     }

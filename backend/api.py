@@ -8,37 +8,58 @@ from pydantic import BaseModel, EmailStr
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 
-# Ensure we can import from local directories
+load_dotenv()
+
+# Ensure local directories are importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from rag.pipeline import SongwritingPipeline, STRUCTURES
-from utils.genius_utils import search_genius_artists
-from utils.config import (
-    STYLE_STRENGTH_DEFAULT,
-    TOP_K,
-    GENERATION_TEMPERATURE,
-    PROMPT_VERSION
-)
+# --- Resilient AI pipeline imports ---
+# These may fail on EC2 if ML model files or heavy deps are missing.
+# Auth, history, and health endpoints must work regardless.
+try:
+    from rag.pipeline import SongwritingPipeline, STRUCTURES
+    from utils.genius_utils import search_genius_artists
+    from utils.config import (
+        STYLE_STRENGTH_DEFAULT,
+        TOP_K,
+        GENERATION_TEMPERATURE,
+        PROMPT_VERSION,
+    )
+    _PIPELINE_IMPORTABLE = True
+except Exception as _import_err:
+    print(f"[WARNING] AI pipeline imports failed: {_import_err}")
+    print("[WARNING] Auth / history / health endpoints remain fully functional.")
+    SongwritingPipeline = None  # type: ignore
+    STRUCTURES = [
+        "Standard (V-C-V-C-B-C)",
+        "Verse-Chorus",
+        "AABA",
+        "Through-Composed",
+    ]
+    search_genius_artists = None  # type: ignore
+    STYLE_STRENGTH_DEFAULT = 0.85
+    TOP_K = 5
+    GENERATION_TEMPERATURE = 0.7
+    PROMPT_VERSION = "v3"
+    _PIPELINE_IMPORTABLE = False
 
-# Custom Auth Modules
+# Custom Auth Modules (these must always work)
 from database import get_db, init_db
 from models import User, Song
 from auth import (
-    get_password_hash, 
-    verify_password, 
-    create_access_token, 
-    get_current_user
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    get_current_user,
 )
-
-load_dotenv()
 
 app = FastAPI(
     title="Global AI Music Studio API",
     description="Backend API with Custom JWT Auth for AI Songwriting.",
-    version="3.1.0"
+    version="3.1.0",
 )
 
-# CORS configuration — credentials=False required when allow_origins=["*"]
+# CORS — allow_credentials must be False when allow_origins=["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,19 +68,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Singleton pipeline instance — initialized on startup, not at import time
-pipeline: SongwritingPipeline = None
+# Singleton pipeline — set in startup event, never at import time
+pipeline = None
+
 
 @app.on_event("startup")
 def on_startup():
     global pipeline
     init_db()
+    if not _PIPELINE_IMPORTABLE:
+        print("[STARTUP] Skipping pipeline init (imports unavailable).")
+        return
     try:
         pipeline = SongwritingPipeline()
+        print("[STARTUP] SongwritingPipeline loaded successfully.")
     except Exception as e:
-        print(f"[WARNING] SongwritingPipeline failed to load: {e}")
-        print("[WARNING] Auth and history endpoints will work. Generate endpoints will return 503.")
+        print(f"[STARTUP WARNING] Pipeline init failed: {e}")
         pipeline = None
+
 
 # --- Pydantic Models ---
 
@@ -67,15 +93,18 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
 
+
 class UserResponse(BaseModel):
     id: int
     email: str
     class Config:
         from_attributes = True
 
+
 class Token(BaseModel):
     access_token: str
     token_type: str
+
 
 class GenerateRequest(BaseModel):
     artists: List[str]
@@ -94,14 +123,17 @@ class GenerateRequest(BaseModel):
     gen_mode: str = "generate"
     perspective_mode: str = "same"
 
+
 class VoiceRequest(BaseModel):
     text: str
     voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
+
 
 class MusicRequest(BaseModel):
     lyrics: str
     style_tags: str
     title: str
+
 
 class SongSaveRequest(BaseModel):
     theme: str
@@ -110,6 +142,7 @@ class SongSaveRequest(BaseModel):
     audio_url: Optional[str] = None
     music_url: Optional[str] = None
 
+
 # --- Auth Endpoints ---
 
 @app.post("/auth/signup", response_model=UserResponse)
@@ -117,18 +150,21 @@ async def signup(user_in: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user_in.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
     new_user = User(
         email=user_in.email,
-        hashed_password=get_password_hash(user_in.password)
+        hashed_password=get_password_hash(user_in.password),
     )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     return new_user
 
+
 @app.post("/auth/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -136,47 +172,71 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
+
 
 @app.get("/auth/me", response_model=UserResponse)
 async def read_users_me(current_user: User = Depends(get_current_user)):
     return current_user
 
+
 # --- Song History Endpoints ---
 
 @app.post("/songs/save")
-async def save_song(req: SongSaveRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def save_song(
+    req: SongSaveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     new_song = Song(
         user_id=current_user.id,
         theme=req.theme,
         artists=",".join(req.artists),
         lyrics=req.lyrics,
         audio_url=req.audio_url,
-        music_url=req.music_url
+        music_url=req.music_url,
     )
     db.add(new_song)
     db.commit()
     return {"status": "success", "song_id": new_song.id}
 
+
 @app.get("/songs")
-async def get_songs(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    songs = db.query(Song).filter(Song.user_id == current_user.id).order_by(Song.created_at.desc()).all()
+async def get_songs(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    songs = (
+        db.query(Song)
+        .filter(Song.user_id == current_user.id)
+        .order_by(Song.created_at.desc())
+        .all()
+    )
     return songs
 
-# --- Work Endpoints (Protected) ---
+
+# --- AI Endpoints (require pipeline) ---
 
 @app.get("/search-artists")
-async def search_artists(q: str = Query(..., min_length=3), current_user: User = Depends(get_current_user)):
+async def search_artists(
+    q: str = Query(..., min_length=3),
+    current_user: User = Depends(get_current_user),
+):
+    if not _PIPELINE_IMPORTABLE or search_genius_artists is None:
+        raise HTTPException(status_code=503, detail="Artist search not available on this server.")
     try:
         results = search_genius_artists(q)
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/generate")
-async def generate_lyrics(req: GenerateRequest, current_user: User = Depends(get_current_user)):
+async def generate_lyrics(
+    req: GenerateRequest,
+    current_user: User = Depends(get_current_user),
+):
     if pipeline is None:
         raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
@@ -195,14 +255,18 @@ async def generate_lyrics(req: GenerateRequest, current_user: User = Depends(get
             style_strength=req.style_strength,
             mode=req.mode,
             gen_mode=req.gen_mode,
-            perspective_mode=req.perspective_mode
+            perspective_mode=req.perspective_mode,
         )
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/generate-voice")
-async def generate_voice(req: VoiceRequest, current_user: User = Depends(get_current_user)):
+async def generate_voice(
+    req: VoiceRequest,
+    current_user: User = Depends(get_current_user),
+):
     if pipeline is None:
         raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
@@ -213,29 +277,40 @@ async def generate_voice(req: VoiceRequest, current_user: User = Depends(get_cur
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/generate-music")
-async def generate_music(req: MusicRequest, current_user: User = Depends(get_current_user)):
+async def generate_music(
+    req: MusicRequest,
+    current_user: User = Depends(get_current_user),
+):
     if pipeline is None:
         raise HTTPException(status_code=503, detail="AI pipeline not available on this server.")
     try:
         urls = pipeline.music_gen.run_full_generation(
             lyrics=req.lyrics,
             style_tags=req.style_tags,
-            title=req.title
+            title=req.title,
         )
         return {"audio_urls": urls}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # --- Public Endpoints ---
 
 @app.get("/health")
 async def health():
-    return {"status": "online", "version": PROMPT_VERSION}
+    return {
+        "status": "online",
+        "version": PROMPT_VERSION,
+        "pipeline": "loaded" if pipeline else "unavailable",
+    }
+
 
 @app.get("/structures")
 async def get_structures():
     return {"structures": STRUCTURES}
+
 
 if __name__ == "__main__":
     import uvicorn
