@@ -47,13 +47,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize DB on startup
+# Singleton pipeline instance — initialized on startup, not at import time
+pipeline: SongwritingPipeline = None
+
 @app.on_event("startup")
 def on_startup():
+    global pipeline
     init_db()
-
-# Singleton pipeline instance
-pipeline = SongwritingPipeline()
+    pipeline = SongwritingPipeline()
 
 # --- Pydantic Models ---
 
