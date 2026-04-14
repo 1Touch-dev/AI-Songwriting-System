@@ -123,6 +123,13 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
         
         status.update(label="✅ PRODUCTION COMPLETE", state="complete", expanded=False)
         
+    if not voice_audio:
+        st.error("⚠️ Vocal Synthesis Failed. Please check ElevenLabs API Key.")
+    if not music_url:
+        st.error("⚠️ Music Production Failed. Please check Suno/Apify configuration.")
+    if not analysis_res.get("analysis"):
+        st.error("⚠️ AI Insights Failed. Lyrical analysis could not be completed.")
+
     res["_voice"] = voice_audio
     res["_music"] = [music_url] if music_url else []
     res["_analysis"] = analysis_res.get("analysis")

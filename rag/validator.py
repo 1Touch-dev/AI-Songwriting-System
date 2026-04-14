@@ -247,32 +247,36 @@ class ChorusValidator:
 
     def enforce_bars(self, text: str, bars: int) -> str:
         """
-        Enforce a strict line count based on the requested bars.
-        Each line = 1 bar.
+        Enforce a strict global line count based on the requested bars.
+        Each line = 1 bar. Truncates the entire song to hit the limit.
         """
-        lines = [l for l in text.split("\n") if l.strip() and not l.startswith("[")]
+        all_lines = text.split("\n")
         
-        if len(lines) > bars:
-            print(f"[VALIDATOR] Truncating lyrics from {len(lines)} to {bars} bars.")
-            # We try to keep structural integrity by finding where the cut happens
-            all_lines = text.split("\n")
-            count = 0
-            final_lines = []
-            for line in all_lines:
-                if line.strip() and not line.startswith("["):
-                    if count < bars:
-                        final_lines.append(line)
-                        count += 1
-                else:
-                    final_lines.append(line)
-            return "\n".join(final_lines)
-            
-        if len(lines) < bars:
-            print(f"[VALIDATOR] UNDERFLOW: {len(lines)}/{bars} bars. Adding instruction for next batch.")
-            # Usually handled by the pipeline loop, but here we flag it
-            return text 
-            
-        return text
+        # Count non-tag lines
+        tag_pattern = re.compile(r"^\[.*\]$")
+        
+        final_lines = []
+        bar_count = 0
+        
+        for line in all_lines:
+            stripped = line.strip()
+            if not stripped:
+                final_lines.append(line)
+                continue
+                
+            if tag_pattern.match(stripped):
+                final_lines.append(line)
+                continue
+                
+            if bar_count < bars:
+                final_lines.append(line)
+                bar_count += 1
+            else:
+                # Stop if we hit the limit
+                pass
+                
+        print(f"[VALIDATOR] Enforced strict global limit: {bar_count}/{bars} bars.")
+        return "\n".join(final_lines).strip()
 
     def rewrite_chorus(self, chorus: str, reason: str) -> str:
         prompt = f"""
