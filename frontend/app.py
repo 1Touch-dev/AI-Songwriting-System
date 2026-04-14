@@ -104,14 +104,29 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
         # Step 3: Music Production
         music_audio = None
         if enable_music and not uploaded_inst:
-            st.write("🎵 Music Production (MusicGen)...")
+            st.write("🎵 Music Production (Suno AI)...")
             music_audio = pipeline.music_gen.run_full_generation(
                 res["lyrics"],
                 f"{params['artists'][0]} style, {params['language']}",
                 res["theme"]
             )
-        
-        # Step 4: LLM Analysis (AI Insights)
+            if music_audio:
+                st.write(f"✅ Music: {len(music_audio):,} bytes")
+            else:
+                st.write("⚠️ Music generation failed")
+
+        # Step 4: Mix vocals + music
+        mixed_audio = None
+        if voice_audio and music_audio:
+            st.write("🎚️ Mixing vocals + music (mastering)...")
+            try:
+                from rag.audio_mixer import mix_voice_and_music
+                mixed_audio = mix_voice_and_music(voice_audio, music_audio)
+                st.write(f"✅ Mix complete: {len(mixed_audio):,} bytes")
+            except Exception as e:
+                st.write(f"⚠️ Mix failed: {e}")
+
+        # Step 5: LLM Analysis (AI Insights)
         st.write("🔍 Running Lyrical Analysis (AI Insights)...")
         analysis_res = pipeline.run(
             artists=params["artists"],
@@ -120,18 +135,19 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
             reference_lyrics=res["lyrics"],
             analysis_mode=True
         )
-        
+
         status.update(label="✅ PRODUCTION COMPLETE", state="complete", expanded=False)
-        
+
     if not voice_audio:
-        st.error("⚠️ Vocal Synthesis Failed. Please check ElevenLabs API Key.")
+        st.error("⚠️ Vocal Synthesis Failed. Check ElevenLabs API Key.")
     if enable_music and not uploaded_inst and not music_audio:
-        st.info("ℹ️ Music Production skipped — Music generation failed or unavailable.")
+        st.warning("⚠️ Music generation failed — check EC2 logs.")
     if not analysis_res.get("analysis"):
         st.warning("⚠️ AI Insights could not be completed.")
 
     res["_voice"] = voice_audio
-    res["_music"] = [music_audio] if music_audio else []
+    res["_music"] = music_audio
+    res["_mixed"] = mixed_audio
     res["_analysis"] = analysis_res.get("analysis")
     res["_timestamp"] = datetime.now().strftime("%H:%M:%S")
     return res
@@ -240,21 +256,43 @@ with col_preview:
         
         # Multimodal Audio Players
         with st.expander("🔊 Production Playback", expanded=True):
-            audio_bytes = res.get("_voice")
-            st.write("DEBUG AUDIO:", audio_bytes is not None)
-            if audio_bytes is not None:
-                st.write("🎙️ **Vocal Synthesis (ElevenLabs)**")
-                st.write(f"Audio size: {len(audio_bytes)} bytes")
-                st.audio(audio_bytes, format="audio/mpeg")
-                st.download_button("📥 Download Vocal", audio_bytes, file_name=f"voice_{res['_timestamp']}.mp3", mime="audio/mpeg")
+            ts = res["_timestamp"]
+
+            # ── Mixed Master (primary output) ──────────────────────────
+            mixed = res.get("_mixed")
+            if mixed:
+                st.write("🎧 **Final Mix (Vocals + Music — Mastered)**")
+                st.write(f"Size: {len(mixed):,} bytes")
+                st.audio(mixed, format="audio/mpeg")
+                st.download_button("📥 Download Final Mix", mixed,
+                                   file_name=f"final_mix_{ts}.mp3", mime="audio/mpeg")
+                st.divider()
+
+            # ── Voice stem ────────────────────────────────────────────
+            voice = res.get("_voice")
+            st.write("DEBUG VOICE:", voice is not None,
+                     f"| {len(voice):,} bytes" if voice else "")
+            if voice:
+                st.write("🎙️ **Vocal Stem (ElevenLabs)**")
+                st.audio(voice, format="audio/mpeg")
+                st.download_button("📥 Download Vocal", voice,
+                                   file_name=f"voice_{ts}.mp3", mime="audio/mpeg",
+                                   key="dl_voice")
             else:
-                st.error("Audio generation failed — check ElevenLabs API key and logs.")
-            if res.get("_music"):
-                st.write("🎵 **Music Track (MusicGen)**")
-                for track in res["_music"]:
-                    if track:
-                        st.audio(track, format="audio/flac")
-                        st.download_button("📥 Download Music", track, file_name=f"music_{res['_timestamp']}.flac", mime="audio/flac")
+                st.error("Vocal generation failed — check ElevenLabs API key.")
+
+            # ── Music stem ────────────────────────────────────────────
+            music = res.get("_music")
+            st.write("DEBUG MUSIC:", music is not None,
+                     f"| {len(music):,} bytes" if music else "")
+            if music:
+                st.write("🎵 **Music Stem (Suno AI)**")
+                st.audio(music, format="audio/mpeg")
+                st.download_button("📥 Download Music", music,
+                                   file_name=f"music_{ts}.mp3", mime="audio/mpeg",
+                                   key="dl_music")
+
+            # ── Uploaded instrumental ─────────────────────────────────
             if uploaded_inst:
                 st.write("🎹 **Uploaded Instrumental**")
                 st.audio(uploaded_inst)
