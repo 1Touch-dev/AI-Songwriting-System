@@ -240,10 +240,15 @@ with col_preview:
         
         # Multimodal Audio Players
         with st.expander("🔊 Production Playback", expanded=True):
-            if res.get("_voice"):
+            audio_bytes = res.get("_voice")
+            st.write("DEBUG AUDIO:", audio_bytes is not None)
+            if audio_bytes is not None:
                 st.write("🎙️ **Vocal Synthesis (ElevenLabs)**")
-                st.audio(res["_voice"], format="audio/mp3")
-                st.download_button("📥 Download Vocal", res["_voice"], file_name=f"voice_{res['_timestamp']}.mp3", mime="audio/mp3")
+                st.write(f"Audio size: {len(audio_bytes)} bytes")
+                st.audio(audio_bytes, format="audio/mpeg")
+                st.download_button("📥 Download Vocal", audio_bytes, file_name=f"voice_{res['_timestamp']}.mp3", mime="audio/mpeg")
+            else:
+                st.error("Audio generation failed — check ElevenLabs API key and logs.")
             if res.get("_music"):
                 st.write("🎸 **Full Music Track (Suno)**")
                 for url in res["_music"]:

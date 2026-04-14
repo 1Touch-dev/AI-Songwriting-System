@@ -2,7 +2,7 @@ import os
 import re
 from pathlib import Path
 from typing import Optional
-from elevenlabs.client import ElevenLabs, VoiceSettings
+from elevenlabs import ElevenLabs, VoiceSettings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -59,32 +59,22 @@ class VoiceGenerator:
     def generate_voice(self, lyrics: str, voice_id: str = "JBFqnCBsd6RMkjVDRZzb") -> Optional[bytes]:
         """
         Convert text to speech using ElevenLabs and return audio bytes.
-        Upgraded to Music Demo style with SSML and emotional delivery.
+        Safe version: no SSML, no break tags, plain text only.
         """
         if not self.client:
             return None
-            
+
         try:
-            # 1. Transform text for musical feel
-            enhanced = enhance_chorus(lyrics)
-            cleaned = clean_lyrics_for_tts(enhanced)
-            final_text = format_for_voice_delivery(cleaned)
+            cleaned = clean_lyrics_for_tts(lyrics)
+            final_text = cleaned.replace("\n", ". ")
 
-            # 2. Add tone guidance
-            final_text = f"""
-Speak in a smooth, emotional, melodic tone.
-Pause naturally like a singer between lines.
+            print(f"[VOICE] Generating speech ({len(final_text)} chars)...")
 
-{final_text}
-"""
-            print(f"[VOICE] Generating music-demo speech...")
-            
-            audio = self.client.text_to_speech.convert(
+            audio_stream = self.client.text_to_speech.convert(
                 text=final_text,
                 voice_id=voice_id,
                 model_id="eleven_multilingual_v2",
                 output_format="mp3_44100_128",
-                enable_ssml_parsing=True,
                 voice_settings=VoiceSettings(
                     stability=0.4,
                     similarity_boost=0.8,
@@ -93,7 +83,12 @@ Pause naturally like a singer between lines.
                 )
             )
 
-            audio_bytes = b"".join(audio)
+            audio_bytes = b"".join(audio_stream)
+
+            if not audio_bytes or len(audio_bytes) < 1000:
+                raise ValueError(f"Invalid audio generated: {len(audio_bytes) if audio_bytes else 0} bytes")
+
+            print(f"[VOICE] Success: {len(audio_bytes)} bytes")
             return audio_bytes
         except Exception as e:
             print(f"[VOICE] Generation failed: {e}")
