@@ -252,6 +252,15 @@ RETRIEVAL USAGE
 ----------------------------------------
 
 You are given fragments from real songs. Use them EXCLUSIVELY to study voice and texture. DO NOT COPY text.
+
+----------------------------------------
+LENGTH & BAR CONTROL (STRICT RULE)
+----------------------------------------
+
+- Generate EXACTLY {bars} lines in total across all sections.
+- Each line corresponds to exactly ONE bar.
+- DO NOT exceed the line count.
+- DO NOT add extra padding lines.
 """
 
 
@@ -279,11 +288,16 @@ def build_prompt(
 
     if analysis_mode:
         system_prompt = f"""You are an ELITE Lyrical Analyst. 
-Your task is to analyze the provided lyrics and provide:
-1. THEMES: Core concepts explored.
-2. EMOTIONS: Primary feelings conveyed.
-3. VERSE IDEAS: Specific suggestions for new verses.
-4. ALTERNATIVE PERSPECTIVES: How another character might view these events.
+Your task is to analyze the provided lyrics and provide a deep stylistic and thematic breakdown.
+
+OUTPUT FORMAT (STRICT JSON):
+{{
+  "theme": "Core theme description",
+  "tone": "Emotional tone description",
+  "ideas": ["New verse concept 1", "New verse concept 2", "New verse concept 3"],
+  "opposite_perspective": "A brief on the opposite perspective",
+  "continuation": "How the story should continue"
+}}
 
 Style inspiration should remain grounded in: {", ".join(artists)}.
 """

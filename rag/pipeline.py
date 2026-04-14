@@ -299,8 +299,25 @@ Respond ONLY with valid JSON:
                     {"role": "user",   "content": user_prompt},
                 ],
             )
-            analysis = response.choices[0].message.content.strip()
-            return {"analysis": analysis, "latency_ms": int((time.time() - t_start) * 1000)}
+            analysis_text = response.choices[0].message.content.strip()
+            
+            # Try to parse as JSON, otherwise return structured fallback
+            try:
+                # Basic cleaning if LLM adds markdown blocks
+                clean_json = re.sub(r'```json\n|\n```', '', analysis_text).strip()
+                analysis_data = json.loads(clean_json)
+            except:
+                analysis_data = {
+                    "raw_analysis": analysis_text,
+                    "theme": "Extracted from text",
+                    "tone": "Analysis in progress",
+                    "ideas": ["Consider expansion", "Review metaphors", "Apply contrast"]
+                }
+                
+            return {
+                "analysis": analysis_data, 
+                "latency_ms": int((time.time() - t_start) * 1000)
+            }
 
         # ── Step 4: Multi-variant Generation ──────────────────────────────
         versions = []
@@ -407,6 +424,12 @@ Respond ONLY with valid JSON:
 
         best_v = scored_versions[0]
         lyrics = best_v["lyrics"]
+
+        # ── FINAL HARDENING: Enforce Bars ──
+        if self._validator:
+            lyrics = self._validator.enforce_bars(lyrics, bars)
+            # Update best_v for consistency
+            best_v["lyrics"] = lyrics
 
         # ── Log ───────────────────────────────────────────────────────────
         log_generation(

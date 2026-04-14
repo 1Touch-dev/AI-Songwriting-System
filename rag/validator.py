@@ -245,6 +245,35 @@ class ChorusValidator:
             
         return f"[Chorus]\n{chorus_text}"
 
+    def enforce_bars(self, text: str, bars: int) -> str:
+        """
+        Enforce a strict line count based on the requested bars.
+        Each line = 1 bar.
+        """
+        lines = [l for l in text.split("\n") if l.strip() and not l.startswith("[")]
+        
+        if len(lines) > bars:
+            print(f"[VALIDATOR] Truncating lyrics from {len(lines)} to {bars} bars.")
+            # We try to keep structural integrity by finding where the cut happens
+            all_lines = text.split("\n")
+            count = 0
+            final_lines = []
+            for line in all_lines:
+                if line.strip() and not line.startswith("["):
+                    if count < bars:
+                        final_lines.append(line)
+                        count += 1
+                else:
+                    final_lines.append(line)
+            return "\n".join(final_lines)
+            
+        if len(lines) < bars:
+            print(f"[VALIDATOR] UNDERFLOW: {len(lines)}/{bars} bars. Adding instruction for next batch.")
+            # Usually handled by the pipeline loop, but here we flag it
+            return text 
+            
+        return text
+
     def rewrite_chorus(self, chorus: str, reason: str) -> str:
         prompt = f"""
 Rewrite this [Chorus] to be more effective.

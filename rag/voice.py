@@ -36,6 +36,7 @@ class VoiceGenerator:
             
             # Convert generator to bytes
             audio_bytes = b"".join(chunk for chunk in audio)
+            print(f"[VOICE] Bytes length: {len(audio_bytes)}")
             return audio_bytes
         except Exception as e:
             print(f"[VOICE] Generation failed: {e}")

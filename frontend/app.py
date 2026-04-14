@@ -86,17 +86,48 @@ if "selected_artist_name" not in st.session_state:
     st.session_state.selected_artist_name = ""
 
 # ── Utility: Status Pipeline ───────────────────────────────────────────────
-def show_pipeline_status(step: int):
-    steps = [
-        "🧠 Synthesizing Lyrical Theme",
-        "✍️ Drafting Artistic Content",
-        "🎤 Vocal Synthesis (ElevenLabs)",
-        "🎸 High-Fidelity Music Production (Suno)"
-    ]
-    for i, s in enumerate(steps):
-        icon = "⏳" if i == step else "✅" if i < step else "⚪"
-        cls = "active" if i == step else "done" if i < step else ""
-        st.markdown(f"<div class='pipeline-step {cls}'>{icon} {s}</div>", unsafe_allow_html=True)
+def handle_production_flow(pipeline, params, enable_voice, enable_music, uploaded_inst):
+    with st.status("🚀 IGNITING PRODUCTION...", expanded=True) as status:
+        st.write("🧠 Synthesizing Lyrical Theme...")
+        # Step 1: Lyrics Generation
+        res = pipeline.run(**params)
+        
+        st.write("✍️ Drafting Artistic Content & Enforcing Bars...")
+        # Validation happens inside pipeline.run
+        
+        # Step 2: Voice Synthesis
+        voice_audio = None
+        if enable_voice:
+            st.write("🎤 Vocal Synthesis (ElevenLabs)...")
+            voice_audio = pipeline.voice_gen.generate_voice(res["lyrics"])
+        
+        # Step 3: Music Production
+        music_url = None
+        if enable_music and not uploaded_inst:
+            st.write("🎸 High-Fidelity Music Production (Suno)...")
+            music_url = pipeline.music_gen.run_full_generation(
+                res["lyrics"], 
+                f"{params['artists'][0]} style, {params['language']}", 
+                res["theme"]
+            )
+        
+        # Step 4: LLM Analysis (AI Insights)
+        st.write("🔍 Running Lyrical Analysis (AI Insights)...")
+        analysis_res = pipeline.run(
+            artists=params["artists"],
+            theme=params["theme"],
+            structure=params["structure"],
+            reference_lyrics=res["lyrics"],
+            analysis_mode=True
+        )
+        
+        status.update(label="✅ PRODUCTION COMPLETE", state="complete", expanded=False)
+        
+    res["_voice"] = voice_audio
+    res["_music"] = [music_url] if music_url else []
+    res["_analysis"] = analysis_res.get("analysis")
+    res["_timestamp"] = datetime.now().strftime("%H:%M:%S")
+    return res
 
 # ── Sidebar: Artist & Genre ────────────────────────────────────────────────
 with st.sidebar:
@@ -170,54 +201,26 @@ with col_main:
         else:
             pipeline = get_pipeline()
             
-            # 1. Pipeline Status Placeholder
-            status_container = st.empty()
-            
             # Translate Mode & Perspective for Backend
             mode_map = {"Generate New": "generate", "Continue Story": "continue", "Remix Style": "remix"}
             persp_map = {"Same POV": "same", "Opposite Empathy": "opposite", "Response Verse": "response"}
             
-            with status_container.container():
-                show_pipeline_status(0)
-                
-            # 2. Run Generation
-            time.sleep(1) # Visual pacing
-            with status_container.container():
-                show_pipeline_status(1)
+            params = {
+                "artists": [st.session_state.selected_artist_name] if st.session_state.selected_artist_name else ["Drake"],
+                "theme": theme,
+                "structure": STRUCTURES[s_choice],
+                "language": language,
+                "gender": gender,
+                "bars": bars,
+                "reference_lyrics": ref_lyrics,
+                "num_variants": num_variants,
+                "temperature": temperature,
+                "style_strength": style_strength,
+                "gen_mode": mode_map[gen_mode],
+                "perspective_mode": persp_map[perspective]
+            }
             
-            res = pipeline.run(
-                artists=[st.session_state.selected_artist_name] if st.session_state.selected_artist_name else ["Drake"],
-                theme=theme,
-                structure=STRUCTURES[s_choice],
-                language=language,
-                gender=gender,
-                bars=bars,
-                reference_lyrics=ref_lyrics,
-                num_variants=num_variants,
-                temperature=temperature,
-                style_strength=style_strength,
-                gen_mode=mode_map[gen_mode],
-                perspective_mode=persp_map[perspective]
-            )
-            
-            # 3. Multimodal Sync
-            voice_audio = None
-            music_urls = []
-            
-            if enable_voice:
-                with status_container.container():
-                    show_pipeline_status(2)
-                voice_audio = pipeline.voice_gen.generate_voice(res["lyrics"], voice_id="JBFqnCBsd6RMkjVDRZzb")
-            
-            if enable_music and not uploaded_inst:
-                with status_container.container():
-                    show_pipeline_status(3)
-                music_urls = pipeline.music_gen.run_full_generation(res["lyrics"], f"{st.session_state.selected_artist_name} style, {language}", res["theme"])
-
-            status_container.empty()
-            res["_voice"] = voice_audio
-            res["_music"] = music_urls
-            res["_timestamp"] = datetime.now().strftime("%H:%M:%S")
+            res = handle_production_flow(pipeline, params, enable_voice, enable_music, uploaded_inst)
             st.session_state.history.insert(0, res)
 
 with col_preview:
@@ -233,19 +236,30 @@ with col_preview:
             if res.get("_voice"):
                 st.write("🎙️ **Vocal Synthesis (ElevenLabs)**")
                 st.audio(res["_voice"], format="audio/mp3")
+                st.download_button("📥 Download Vocal", res["_voice"], file_name=f"voice_{res['_timestamp']}.mp3", mime="audio/mp3")
             if res.get("_music"):
                 st.write("🎸 **Full Music Track (Suno)**")
                 for url in res["_music"]:
-                    st.audio(url)
+                    if url:
+                        st.audio(url)
+                    else:
+                        st.error("Suno URL not generated. Check logs.")
             if uploaded_inst:
                 st.write("🎹 **Uploaded Instrumental**")
                 st.audio(uploaded_inst)
 
         # Tabs for Content & Analysis
-        tab_lyrics, tab_variants, tab_stats = st.tabs(["📝 Final Lyrics", "🌈 Variants", "📊 Session Stats"])
+        tab_lyrics, tab_analysis, tab_variants, tab_stats = st.tabs(["📝 Final Lyrics", "💡 AI Insights", "🌈 Variants", "📊 Session Stats"])
         
         with tab_lyrics:
             st.markdown(f"<div class='lyrics-container'>{re.sub(r'(\[[^\]]+\])', r'**\1**', res['lyrics']).replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
+
+        with tab_analysis:
+            if res.get("_analysis"):
+                st.subheader("💡 Lyrical Deep-Dive")
+                st.json(res["_analysis"])
+            else:
+                st.info("No analysis available for this track.")
         
         with tab_variants:
             v_tabs = st.tabs([f"Variant {chr(65+i)}" for i in range(len(res["versions"]))])
@@ -256,9 +270,9 @@ with col_preview:
 
         with tab_stats:
             c1, c2 = st.columns(2)
-            c1.metric("Retrieval Quality", f"{res['retrieval_quality']:.3f}")
-            c2.metric("Latency", f"{res['latency_ms']/1000:.1f}s")
-            st.json(res["retrieval_diagnostics"])
+            c1.metric("Retrieval Quality", f"{res.get('retrieval_quality', 0):.3f}")
+            c2.metric("Latency", f"{res.get('latency_ms', 0)/1000:.1f}s")
+            st.json(res.get("retrieval_diagnostics", {}))
 
 # ── Footer ───────────────────────────────────────────────────────────────
 st.divider()
