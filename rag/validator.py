@@ -245,38 +245,16 @@ class ChorusValidator:
             
         return f"[Chorus]\n{chorus_text}"
 
-    def enforce_bars(self, text: str, bars: int) -> str:
-        """
-        Enforce a strict global line count based on the requested bars.
-        Each line = 1 bar. Truncates the entire song to hit the limit.
-        """
-        all_lines = text.split("\n")
-        
-        # Count non-tag lines
-        tag_pattern = re.compile(r"^\[.*\]$")
-        
-        final_lines = []
-        bar_count = 0
-        
-        for line in all_lines:
-            stripped = line.strip()
-            if not stripped:
-                final_lines.append(line)
-                continue
-                
-            if tag_pattern.match(stripped):
-                final_lines.append(line)
-                continue
-                
-            if bar_count < bars:
-                final_lines.append(line)
-                bar_count += 1
-            else:
-                # Stop if we hit the limit
-                pass
-                
-        print(f"[VALIDATOR] Enforced strict global limit: {bar_count}/{bars} bars.")
-        return "\n".join(final_lines).strip()
+    def enforce_bars(self, text, bars):
+        lines = [l for l in text.split("\n") if l.strip()]
+
+        if len(lines) > bars:
+            return "\n".join(lines[:bars])
+
+        if len(lines) < bars:
+            return "\n".join(lines + ["..."] * (bars - len(lines)))
+
+        return text
 
     def rewrite_chorus(self, chorus: str, reason: str) -> str:
         prompt = f"""

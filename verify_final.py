@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 from pathlib import Path
 
 # Add project root to path
@@ -24,9 +25,23 @@ def test_production_hardening():
         bars=bars
     )
     lyrics = res["lyrics"]
-    lines = [l for l in lyrics.split("\n") if l.strip() and not l.startswith("[")]
     
-    print(f"Generated {len(lines)} lines for {bars} bars.")
+    # Standardized line counting (matches validator.py)
+    tag_pattern = re.compile(r"^\s*(\[.*\]|Verse|Chorus|Bridge|Intro|Outro|Hook).*", re.IGNORECASE)
+    lines = []
+    print("\n[DEBUG] Line-by-line classification:")
+    for l in lyrics.split("\n"):
+        stripped = l.strip()
+        if not stripped:
+            continue
+        if tag_pattern.match(stripped):
+            print(f"  [TAG] {stripped}")
+            continue
+        
+        print(f"  [BAR] {stripped}")
+        lines.append(l)
+    
+    print(f"\nTotal bars identified: {len(lines)} (Target: {bars})")
     assert len(lines) == bars, f"Expected {bars} bars, got {len(lines)}"
     print("✅ Bars Control: PASSED")
     

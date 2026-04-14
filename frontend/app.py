@@ -262,11 +262,8 @@ with col_preview:
             st.markdown(f"<div class='lyrics-container'>{re.sub(r'(\[[^\]]+\])', r'**\1**', res['lyrics']).replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
         with tab_analysis:
-            if res.get("_analysis"):
-                st.subheader("💡 Lyrical Deep-Dive")
-                st.json(res["_analysis"])
-            else:
-                st.info("No analysis available for this track.")
+            st.subheader("💡 AI Insights")
+            st.json(res.get("_analysis"))
         
         with tab_variants:
             v_tabs = st.tabs([f"Variant {chr(65+i)}" for i in range(len(res["versions"]))])

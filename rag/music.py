@@ -29,8 +29,8 @@ class MusicGenerator:
         if not self.enabled or not self.client:
             return None
 
-        actor_id = "tentortoise/suno-ai-generator"
-        run_input = {
+        actor = "tentortoise/suno-ai-generator"
+        payload = {
             "prompt": lyrics,
             "tags": style_tags,
             "title": title,
@@ -38,36 +38,21 @@ class MusicGenerator:
             "mv": "chirp-v3-0"
         }
 
-        music_url = None
-        for attempt in range(attempts):
+        for i in range(3):
             try:
-                print(f"[SUNO] Attempt {attempt+1}/{attempts}: Triggering Apify Suno Actor for: '{title}'...")
-                # Run the Actor and wait for it to finish (max 300s timeout)
-                run = self.client.actor(actor_id).call(
-                    run_input=run_input,
-                    timeout_secs=300 
-                )
+                print(f"[SUNO] Attempt {i+1}/3: Triggering Suno Actor...")
+                run = self.client.actor(actor).call(run_input=payload)
                 
-                # Fetch results from the run's dataset
-                urls = []
+                # Extract ONLY audio_url
                 for item in self.client.dataset(run["defaultDatasetId"]).iterate_items():
-                    # STRICT URL EXTRACTION
                     if "audio_url" in item:
-                        urls.append(item["audio_url"])
-                
-                if urls:
-                    music_url = urls[0]
-                    print(f"[SUNO] Success! URL: {music_url}")
-                    return music_url
-                
-                print(f"[SUNO] Attempt {attempt+1} returned no valid URLs. Retrying...")
-                
+                        return item["audio_url"]
+                break
             except Exception as e:
-                print(f"[SUNO] Attempt {attempt+1} failed: {e}")
-                if attempt < attempts - 1:
-                    time.sleep(2 * (attempt + 1)) # Exponential backoff
-                else:
-                    break
+                print(f"[SUNO] Attempt {i+1} failed: {e}")
+                time.sleep(2 * (i+1))
+
+        return None
 
         print("[SUNO] All generation attempts exhausted.")
         return None

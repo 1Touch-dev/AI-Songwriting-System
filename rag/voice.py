@@ -31,12 +31,10 @@ class VoiceGenerator:
                 text=text,
                 voice_id=voice_id,
                 model_id="eleven_multilingual_v2",
-                output_format="mp3_44100_128",
+                output_format="mp3_44100_128"
             )
-            
-            # Convert generator to bytes
-            audio_bytes = b"".join(chunk for chunk in audio)
-            print(f"[VOICE] Bytes length: {len(audio_bytes)}")
+
+            audio_bytes = b"".join(audio)
             return audio_bytes
         except Exception as e:
             print(f"[VOICE] Generation failed: {e}")
