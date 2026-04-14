@@ -102,12 +102,12 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
             voice_audio = pipeline.voice_gen.generate_voice(res["lyrics"])
         
         # Step 3: Music Production
-        music_url = None
+        music_audio = None
         if enable_music and not uploaded_inst:
-            st.write("🎸 High-Fidelity Music Production (Suno)...")
-            music_url = pipeline.music_gen.run_full_generation(
-                res["lyrics"], 
-                f"{params['artists'][0]} style, {params['language']}", 
+            st.write("🎵 Music Production (MusicGen)...")
+            music_audio = pipeline.music_gen.run_full_generation(
+                res["lyrics"],
+                f"{params['artists'][0]} style, {params['language']}",
                 res["theme"]
             )
         
@@ -125,13 +125,13 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
         
     if not voice_audio:
         st.error("⚠️ Vocal Synthesis Failed. Please check ElevenLabs API Key.")
-    if enable_music and not uploaded_inst and not music_url:
-        st.info("ℹ️ Music Production skipped — Suno API key not configured. Add SUNO_API_KEY to .env to enable.")
+    if enable_music and not uploaded_inst and not music_audio:
+        st.info("ℹ️ Music Production skipped — Music generation failed or unavailable.")
     if not analysis_res.get("analysis"):
         st.warning("⚠️ AI Insights could not be completed.")
 
     res["_voice"] = voice_audio
-    res["_music"] = [music_url] if music_url else []
+    res["_music"] = [music_audio] if music_audio else []
     res["_analysis"] = analysis_res.get("analysis")
     res["_timestamp"] = datetime.now().strftime("%H:%M:%S")
     return res
@@ -250,12 +250,11 @@ with col_preview:
             else:
                 st.error("Audio generation failed — check ElevenLabs API key and logs.")
             if res.get("_music"):
-                st.write("🎸 **Full Music Track (Suno)**")
-                for url in res["_music"]:
-                    if url:
-                        st.audio(url)
-                    else:
-                        st.error("Suno URL not generated. Check logs.")
+                st.write("🎵 **Music Track (MusicGen)**")
+                for track in res["_music"]:
+                    if track:
+                        st.audio(track, format="audio/flac")
+                        st.download_button("📥 Download Music", track, file_name=f"music_{res['_timestamp']}.flac", mime="audio/flac")
             if uploaded_inst:
                 st.write("🎹 **Uploaded Instrumental**")
                 st.audio(uploaded_inst)
