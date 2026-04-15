@@ -20,6 +20,12 @@ evaluation/results.json
 evaluation/detailed_results.json
 _rag/
 
+# Node / Next.js
+node_modules/
+frontend-nextjs/node_modules/
+frontend-nextjs/.next/
+*.node
+
 # External Drive / Mac / USB Noise
 ._*
 .DS_Store
