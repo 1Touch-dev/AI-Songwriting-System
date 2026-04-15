@@ -36,9 +36,18 @@ export default function GenerationStatus({ steps, overallStatus }: Props) {
         {overallStatus === 'complete' && (
           <CheckCircle size={16} style={{ color: '#2ed573' }} />
         )}
+        {overallStatus === 'error' && (
+          <span style={{ color: '#ff4757', fontSize: 16 }}>✕</span>
+        )}
         <span className="font-display font-semibold text-sm uppercase tracking-widest"
-          style={{ color: overallStatus === 'complete' ? '#2ed573' : '#8ff5ff' }}>
-          {overallStatus === 'running' ? 'Production Pipeline Running...' : 'Production Complete'}
+          style={{
+            color: overallStatus === 'complete' ? '#2ed573'
+                 : overallStatus === 'error' ? '#ff4757'
+                 : '#8ff5ff'
+          }}>
+          {overallStatus === 'running' ? 'Production Pipeline Running...'
+           : overallStatus === 'complete' ? 'Production Complete'
+           : 'Production Failed — See Error Below'}
         </span>
       </div>
 

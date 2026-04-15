@@ -307,6 +307,7 @@ Style inspiration should remain grounded in: {", ".join(artists)}.
     system_prompt = _SYSTEM_BASE.format(
         prompt_version=PROMPT_VERSION,
         style_instruction=style_instruction,
+        bars=bars,
     )
 
     artist_str = " + ".join(artists) if len(artists) > 1 else artists[0]

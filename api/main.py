@@ -12,6 +12,7 @@ import base64
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -148,12 +149,19 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
     pipeline = get_pipeline()
     t0 = time.time()
 
+    # Convert structure list → " → " string (pipeline expects a plain string)
+    if isinstance(req.structure, list):
+        # Strip brackets e.g. "[Verse 1]" → "Verse 1"
+        structure_str = " → ".join(s.strip().strip("[]") for s in req.structure)
+    else:
+        structure_str = req.structure
+
     # ── Step 1: Lyrics ────────────────────────────────────────────────
     try:
         res = pipeline.run(
             artists=req.artists,
             theme=req.theme,
-            structure=req.structure,
+            structure=structure_str,
             language=req.language,
             gender=req.gender,
             bars=req.bars,
@@ -165,6 +173,7 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
             perspective_mode=req.perspective_mode,
         )
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Lyrics generation failed: {e}")
 
     lyrics: str = res.get("lyrics", "")
@@ -205,7 +214,7 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
         analysis_res = pipeline.run(
             artists=req.artists,
             theme=req.theme,
-            structure=req.structure,
+            structure=structure_str,
             reference_lyrics=lyrics,
             analysis_mode=True,
         )
