@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   Music2, Mic2, Sliders, ChevronDown, ChevronRight,
   Radio, Upload, Trash2, Library, Zap, Settings,
-  AlertCircle, Info, RotateCcw
+  AlertCircle, Info, RotateCcw, Square
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
@@ -95,6 +95,7 @@ export default function StudioPage() {
 
   const [uploadedInst, setUploadedInst] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
@@ -136,6 +137,10 @@ export default function StudioPage() {
       return
     }
 
+    // Cancel any previous in-flight request
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+
     setRunning(true)
     setPipelineStatus('running')
     setCompletedSteps(new Set())
@@ -154,12 +159,22 @@ export default function StudioPage() {
       'Response Verse': 'response',
     }
 
-    try {
-      // Simulate step progression (real steps come from SSE in Phase 2)
-      const markDone = (step: string) =>
-        setCompletedSteps(prev => new Set([...prev, step]))
-      const nextStep = (step: string) => setActiveStep(step)
+    // Declare timers outside try so catch can clear them
+    const markDone = (step: string) =>
+      setCompletedSteps(prev => new Set([...prev, step]))
+    const nextStep = (step: string) => setActiveStep(step)
 
+    let stepTimer: ReturnType<typeof setTimeout>
+    let voiceTimer: ReturnType<typeof setTimeout>
+    let musicTimer: ReturnType<typeof setTimeout>
+    let mixTimer: ReturnType<typeof setTimeout>
+
+    const clearAllTimers = () => {
+      clearTimeout(stepTimer); clearTimeout(voiceTimer)
+      clearTimeout(musicTimer); clearTimeout(mixTimer)
+    }
+
+    try {
       const params = {
         artists: [state.artist || 'Drake'],
         theme: state.theme,
@@ -177,16 +192,15 @@ export default function StudioPage() {
         enable_music: state.enableMusic,
       }
 
-      // Start request + simulate step updates
-      const stepTimer = setTimeout(() => { markDone('lyrics'); nextStep('voice') }, 3000)
-      const voiceTimer = setTimeout(() => { markDone('voice'); nextStep('music') }, 8000)
-      const musicTimer = setTimeout(() => { markDone('music'); nextStep('mix') }, 15000)
-      const mixTimer   = setTimeout(() => { markDone('mix'); nextStep('analysis') }, 18000)
+      // Simulate step progression while waiting for API
+      stepTimer  = setTimeout(() => { markDone('lyrics'); nextStep('voice') }, 3000)
+      voiceTimer = setTimeout(() => { markDone('voice'); nextStep('music') }, 8000)
+      musicTimer = setTimeout(() => { markDone('music'); nextStep('mix') }, 15000)
+      mixTimer   = setTimeout(() => { markDone('mix'); nextStep('analysis') }, 18000)
 
-      const res = await generateSong(params, token)
+      const res = await generateSong(params, token, abortRef.current?.signal)
 
-      clearTimeout(stepTimer); clearTimeout(voiceTimer)
-      clearTimeout(musicTimer); clearTimeout(mixTimer)
+      clearAllTimers()
 
       // Mark failures
       const failed = new Set<string>()
@@ -205,13 +219,27 @@ export default function StudioPage() {
       setActiveVariant(0)
       toast.success('Production complete!')
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Generation failed'
-      setPipelineStatus('error')
-      toast.error(`Generation failed: ${message}`)
+      clearAllTimers()
+      // Distinguish user-cancelled from real errors
+      const isAbort =
+        (err instanceof Error && err.name === 'CanceledError') ||
+        (err instanceof Error && err.name === 'AbortError') ||
+        (err as { code?: string })?.code === 'ERR_CANCELED'
+      if (isAbort) {
+        setPipelineStatus('idle')
+        setActiveStep('')
+        setCompletedSteps(new Set())
+        toast('Generation stopped.', { icon: '⏹' })
+      } else {
+        const message = err instanceof Error ? err.message : 'Generation failed'
+        setPipelineStatus('error')
+        toast.error(`Generation failed: ${message}`)
+      }
     } finally {
       setRunning(false)
+      abortRef.current = null
     }
-  }, [state])
+  }, [state, token])
 
   // ── Format lyrics with section headers highlighted ────────────────────
   const formatLyrics = (text: string) => {
@@ -230,6 +258,10 @@ export default function StudioPage() {
   }
 
   const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps)
+
+  const stopGeneration = () => {
+    abortRef.current?.abort()
+  }
 
   const handleLogout = () => {
     localStorage.removeItem(SESSION_TOKEN_KEY)
@@ -548,16 +580,33 @@ export default function StudioPage() {
             </div>
 
             {/* Generate Button */}
+            <div className="flex gap-3">
             <button
               onClick={generate}
               disabled={running}
-              className="btn-primary w-full py-4 text-base flex items-center justify-center gap-2"
+              className="btn-primary flex-1 py-4 text-base flex items-center justify-center gap-2"
             >
               {running
                 ? <><RotateCcw size={18} className="animate-spin" /> Producing...</>
                 : <><Zap size={18} /> IGNITE PRODUCTION</>
               }
             </button>
+            {running && (
+              <button
+                onClick={stopGeneration}
+                title="Stop generation"
+                className="flex-shrink-0 flex items-center justify-center gap-2 px-5 py-4 rounded-xl font-display font-semibold text-sm transition-all duration-200 hover:scale-105 active:scale-95"
+                style={{
+                  background: 'rgba(255,71,87,0.12)',
+                  border: '1px solid rgba(255,71,87,0.3)',
+                  color: '#ff4757',
+                }}
+              >
+                <Square size={16} fill="#ff4757" />
+                Stop
+              </button>
+            )}
+            </div>
 
             {/* Pipeline Status */}
             <GenerationStatus

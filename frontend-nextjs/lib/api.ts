@@ -15,10 +15,12 @@ export async function login(email: string, password: string): Promise<{ token: s
 
 export async function generateSong(
   params: GenerateParams,
-  token: string
+  token: string,
+  signal?: AbortSignal
 ): Promise<GenerateResult> {
   const res = await client.post('/generate', params, {
     headers: { Authorization: `Bearer ${token}` },
+    signal,
   })
   return res.data
 }
