@@ -12,7 +12,7 @@ import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
 import GenerationStatus, { PipelineStep } from '@/components/GenerationStatus'
 import type { GenerateResult, StudioState, Language, GenMode, PerspectiveMode } from '@/lib/types'
-import { generateSong, searchArtists, b64ToDownloadUrl } from '@/lib/api'
+import { generateSong, searchArtists, b64ToDownloadUrl, saveProject } from '@/lib/api'
 
 // ── Song structures (matches Python STRUCTURES dict) ──────────────────────
 const STRUCTURES: Record<string, string[]> = {
@@ -40,13 +40,16 @@ const DEFAULT_STATE: StudioState = {
   perspective: 'Same POV',
   language: 'English',
   gender: 'Neutral',
-  bars: 16,
+  bars: 32,
   numVariants: 3,
   temperature: 0.85,
   styleStrength: 0.7,
   enableVoice: true,
   enableMusic: true,
 }
+
+const STUDIO_RESULT_KEY = 'sonicflow_last_result'
+const STUDIO_HISTORY_KEY = 'sonicflow_history'
 
 // ── Utility: build pipeline steps array ──────────────────────────────────
 function buildSteps(activeStep: string, completedSteps: Set<string>, failedSteps: Set<string>): PipelineStep[] {
@@ -100,15 +103,22 @@ export default function StudioPage() {
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
 
-  // ── Auth guard ───────────────────────────────────────────────────────
+  // ── Auth guard + restore session ─────────────────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_TOKEN_KEY)
     if (!stored) {
       router.replace('/login')
-    } else {
-      setToken(stored)
-      setAuthChecked(true)
+      return
     }
+    setToken(stored)
+    // Restore last result and history from localStorage
+    try {
+      const savedResult = localStorage.getItem(STUDIO_RESULT_KEY)
+      if (savedResult) setResult(JSON.parse(savedResult))
+      const savedHistory = localStorage.getItem(STUDIO_HISTORY_KEY)
+      if (savedHistory) setHistory(JSON.parse(savedHistory))
+    } catch { /* ignore parse errors */ }
+    setAuthChecked(true)
   }, [router])
 
   // ── Artist autocomplete ──────────────────────────────────────────────
@@ -213,11 +223,38 @@ export default function StudioPage() {
       setActiveStep('')
 
       setResult(res)
-      setHistory(h => [res, ...h])
+      const newHistory = [res, ...history]
+      setHistory(newHistory)
       setPipelineStatus('complete')
       setActiveTab('lyrics')
       setActiveVariant(0)
       toast.success('Production complete!')
+
+      // Persist to localStorage so result survives navigation
+      try {
+        localStorage.setItem(STUDIO_RESULT_KEY, JSON.stringify(res))
+        // Store history without audio blobs (too large) — just metadata
+        const historyMeta = newHistory.slice(0, 20).map(h => ({
+          ...h,
+          voice_audio_b64: null,
+          music_audio_b64: null,
+          mixed_audio_b64: null,
+        }))
+        localStorage.setItem(STUDIO_HISTORY_KEY, JSON.stringify(historyMeta))
+      } catch { /* storage full — skip */ }
+
+      // Save to server library (metadata only, no audio)
+      try {
+        await saveProject(token, {
+          title: res.theme || state.theme || 'Untitled',
+          theme: res.theme || state.theme,
+          artist: state.artist || 'Unknown',
+          lyrics: res.lyrics,
+          has_voice: !!res.voice_audio_b64,
+          has_music: !!res.music_audio_b64,
+          duration_s: 0,
+        })
+      } catch { /* non-critical — library sync failed silently */ }
     } catch (err: unknown) {
       clearAllTimers()
       // Distinguish user-cancelled from real errors
@@ -239,7 +276,7 @@ export default function StudioPage() {
       setRunning(false)
       abortRef.current = null
     }
-  }, [state, token])
+  }, [state, token, history])
 
   // ── Format lyrics with section headers highlighted ────────────────────
   const formatLyrics = (text: string) => {
@@ -477,7 +514,12 @@ export default function StudioPage() {
 
           {/* Clear */}
           <button
-            onClick={() => { setHistory([]); setResult(null); setState(DEFAULT_STATE); setArtistQuery(''); setPipelineStatus('idle') }}
+            onClick={() => {
+              setHistory([]); setResult(null); setState(DEFAULT_STATE)
+              setArtistQuery(''); setPipelineStatus('idle')
+              localStorage.removeItem(STUDIO_RESULT_KEY)
+              localStorage.removeItem(STUDIO_HISTORY_KEY)
+            }}
             className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm text-text-muted hover:text-error hover:bg-glass transition-all"
           >
             <Trash2 size={14} /> Clear Project

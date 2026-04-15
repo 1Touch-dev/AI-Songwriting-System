@@ -9,10 +9,12 @@ Endpoints:
   GET  /health             → { status: "ok" }
 """
 import base64
+import json
 import os
 import sys
 import time
 import traceback
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -26,6 +28,21 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
+
+# ── Project storage (file-based) ──────────────────────────────────────────
+PROJECTS_FILE = ROOT / "data" / "projects.json"
+PROJECTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+def _load_projects() -> list[dict]:
+    if not PROJECTS_FILE.exists():
+        return []
+    try:
+        return json.loads(PROJECTS_FILE.read_text())
+    except Exception:
+        return []
+
+def _save_projects(projects: list[dict]) -> None:
+    PROJECTS_FILE.write_text(json.dumps(projects, ensure_ascii=False, indent=2))
 
 from rag.pipeline import SongwritingPipeline, STRUCTURES
 from utils.genius_utils import search_genius_artists
@@ -116,6 +133,15 @@ class Project(BaseModel):
     duration_s: float
     has_voice: bool
     has_music: bool
+
+class SaveProjectRequest(BaseModel):
+    title: str
+    theme: str
+    artist: str
+    lyrics: str
+    has_voice: bool
+    has_music: bool
+    duration_s: float = 0.0
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
@@ -250,5 +276,28 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
 
 @app.get("/projects")
 def get_projects(token: str = Depends(verify_token)):
-    # Placeholder — returns empty list until DB is wired in Phase 3
-    return {"projects": []}
+    projects = _load_projects()
+    # Return newest first
+    return {"projects": list(reversed(projects))}
+
+
+@app.post("/projects", response_model=Project)
+def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
+    projects = _load_projects()
+    project = {
+        "id": str(uuid.uuid4()),
+        "title": req.title or req.theme[:40] or "Untitled",
+        "theme": req.theme,
+        "artist": req.artist,
+        "lyrics": req.lyrics,
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "duration_s": req.duration_s,
+        "has_voice": req.has_voice,
+        "has_music": req.has_music,
+    }
+    projects.append(project)
+    # Keep max 200 projects
+    if len(projects) > 200:
+        projects = projects[-200:]
+    _save_projects(projects)
+    return project

@@ -37,6 +37,24 @@ export async function getProjects(token: string): Promise<import('./types').Proj
   return res.data.projects ?? []
 }
 
+export async function saveProject(
+  token: string,
+  data: {
+    title: string
+    theme: string
+    artist: string
+    lyrics: string
+    has_voice: boolean
+    has_music: boolean
+    duration_s?: number
+  }
+): Promise<import('./types').Project> {
+  const res = await client.post('/projects', data, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  return res.data
+}
+
 export function b64ToAudioUrl(b64: string): string {
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)

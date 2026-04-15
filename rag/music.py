@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SUNO_BASE_URL   = "https://api.sunoapi.org"
-HF_API_URL      = "https://api-inference.huggingface.co/models/facebook/musicgen-small"
+HF_API_URL      = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
 CALLBACK_PORT   = int(os.getenv("SUNO_CALLBACK_PORT", "8765"))
 EC2_PUBLIC_IP   = os.getenv("EC2_PUBLIC_IP", "3.239.91.199")
 
