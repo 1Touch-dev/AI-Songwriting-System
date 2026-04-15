@@ -50,14 +50,17 @@ def get_pipeline() -> SongwritingPipeline:
     return _pipeline
 
 
-# ── Auth (simple dev token — replace with real auth in production) ────────
-DEV_TOKEN = os.getenv("API_DEV_TOKEN", "dev-token")
+# ── Auth ─────────────────────────────────────────────────────────────────
+# Hardcoded studio credentials — replace with DB-backed auth when needed
+STUDIO_USERS = {
+    "admin@studio.com": "admins",
+}
+SESSION_TOKEN = "sonicflow-studio-session-v3"   # shared session token
 
 def verify_token(authorization: str = Header(default="")) -> str:
     token = authorization.replace("Bearer ", "").strip()
-    # Accept dev-token or any non-empty token for now
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token")
+    if token != SESSION_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
     return token
 
 
@@ -122,11 +125,10 @@ def health():
 
 @app.post("/login", response_model=LoginResponse)
 def login(req: LoginRequest):
-    # Simplified auth: accept any valid-looking credentials
-    if not req.email or not req.password:
-        raise HTTPException(status_code=400, detail="Email and password required")
-    # Return a dev token; replace with JWT in production
-    return {"token": DEV_TOKEN}
+    expected_pw = STUDIO_USERS.get(req.email.lower().strip())
+    if expected_pw is None or req.password != expected_pw:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return {"token": SESSION_TOKEN}
 
 
 @app.get("/artists/search")

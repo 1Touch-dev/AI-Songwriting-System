@@ -2,21 +2,24 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Music2, Mic2, Radio, Search, ArrowLeft, Clock, Download } from 'lucide-react'
-import { getProjects, b64ToDownloadUrl } from '@/lib/api'
+import { useRouter } from 'next/navigation'
+import { Music2, Mic2, Radio, Search, ArrowLeft, Clock } from 'lucide-react'
+import { getProjects } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
 export default function LibraryPage() {
+  const router = useRouter()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   useEffect(() => {
-    const token = localStorage.getItem('sonicflow_token') ?? 'dev-token'
+    const token = localStorage.getItem('sonicflow_token')
+    if (!token) { router.replace('/login'); return }
     getProjects(token)
       .then(setProjects)
-      .catch(e => setError(e.message))
+      .catch(e => setError(e?.response?.data?.detail || e.message || 'Network error'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -86,7 +89,7 @@ export default function LibraryPage() {
           <div className="glass-panel p-8 text-center space-y-3">
             <p className="text-error text-sm">{error}</p>
             <p className="text-text-muted text-xs">
-              Backend API not available. Complete Phase 2 deployment to load projects.
+              Could not reach the API — check that the backend is running and port 8000 is open.
             </p>
             <Link href="/" className="btn-secondary inline-flex items-center gap-2 mt-2">
               <ArrowLeft size={14} /> Back to Studio

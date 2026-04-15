@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Music2, Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -13,6 +13,13 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
 
+  // If already logged in, skip to studio
+  useEffect(() => {
+    if (localStorage.getItem('sonicflow_token')) {
+      router.replace('/')
+    }
+  }, [router])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email || !password) { toast.error('Enter email and password.'); return }
@@ -22,8 +29,9 @@ export default function LoginPage() {
       localStorage.setItem('sonicflow_token', token)
       toast.success('Welcome back!')
       router.push('/')
-    } catch {
-      toast.error('Login failed. Check credentials.')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(detail || 'Invalid email or password.')
     } finally {
       setLoading(false)
     }

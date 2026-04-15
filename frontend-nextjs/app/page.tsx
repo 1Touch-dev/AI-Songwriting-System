@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Music2, Mic2, Sliders, ChevronDown, ChevronRight,
@@ -27,8 +28,7 @@ const LANGUAGES: Language[] = ['English','Spanish','French','German','Hindi','Ar
 const GEN_MODES: GenMode[] = ['Generate New','Continue Story','Remix Style']
 const PERSPECTIVES: PerspectiveMode[] = ['Same POV','Opposite Empathy','Response Verse']
 
-// Hardcoded demo token — replaced by real auth after Phase 2
-const DEV_TOKEN = 'dev-token'
+const SESSION_TOKEN_KEY = 'sonicflow_token'
 
 // ── Default state ─────────────────────────────────────────────────────────
 const DEFAULT_STATE: StudioState = {
@@ -67,6 +67,10 @@ function buildSteps(activeStep: string, completedSteps: Set<string>, failedSteps
 }
 
 export default function StudioPage() {
+  const router = useRouter()
+  const [authChecked, setAuthChecked] = useState(false)
+  const [token, setToken] = useState('')
+
   const [state, setState] = useState<StudioState>(DEFAULT_STATE)
   const [result, setResult] = useState<GenerateResult | null>(null)
   const [history, setHistory] = useState<GenerateResult[]>([])
@@ -94,6 +98,17 @@ export default function StudioPage() {
 
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
+
+  // ── Auth guard ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const stored = localStorage.getItem(SESSION_TOKEN_KEY)
+    if (!stored) {
+      router.replace('/login')
+    } else {
+      setToken(stored)
+      setAuthChecked(true)
+    }
+  }, [router])
 
   // ── Artist autocomplete ──────────────────────────────────────────────
   useEffect(() => {
@@ -168,7 +183,7 @@ export default function StudioPage() {
       const musicTimer = setTimeout(() => { markDone('music'); nextStep('mix') }, 15000)
       const mixTimer   = setTimeout(() => { markDone('mix'); nextStep('analysis') }, 18000)
 
-      const res = await generateSong(params, DEV_TOKEN)
+      const res = await generateSong(params, token)
 
       clearTimeout(stepTimer); clearTimeout(voiceTimer)
       clearTimeout(musicTimer); clearTimeout(mixTimer)
@@ -216,6 +231,14 @@ export default function StudioPage() {
 
   const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps)
 
+  const handleLogout = () => {
+    localStorage.removeItem(SESSION_TOKEN_KEY)
+    router.replace('/login')
+  }
+
+  // Show nothing while auth check is in progress (avoids flash of studio)
+  if (!authChecked) return null
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
@@ -248,10 +271,11 @@ export default function StudioPage() {
               className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all">
               <Library size={15} /> Library
             </Link>
-            <Link href="/login"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all">
-              <Settings size={15} /> Account
-            </Link>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all w-full text-left">
+              <Settings size={15} /> Sign Out
+            </button>
           </nav>
 
           <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
