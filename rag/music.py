@@ -152,8 +152,15 @@ class MusicGenerator:
         return None
 
     # ------------------------------------------------------------------
-    # Poll sunoapi.org until task status == complete/streaming
-    # Response path: data["data"]["data"][0]["source_audio_url"]
+    # Poll sunoapi.org until task succeeds.
+    #
+    # Actual response structure (discovered via live testing):
+    #   data["data"]["status"]                              → task status
+    #   data["data"]["response"]["sunoData"][n]["sourceAudioUrl"]
+    #   data["data"]["response"]["sunoData"][n]["audioUrl"]
+    #
+    # Status values: "PENDING" → "FIRST_SUCCESS" → "SUCCESS"
+    # "FIRST_SUCCESS" means ≥1 track is ready — we can use it immediately.
     # ------------------------------------------------------------------
     def _poll_suno(
         self, task_id: str, headers: dict, timeout: int = 300
@@ -176,37 +183,31 @@ class MusicGenerator:
                     time.sleep(poll_interval)
                     continue
 
-                # Parse: data["data"]["data"][0]
                 outer  = data.get("data", {})
-                tracks = outer.get("data", []) if isinstance(outer, dict) else []
+                status = outer.get("status", "PENDING")
+                print(f"[MUSIC] Polling... status={status}", flush=True)
 
-                if not tracks:
-                    status = outer.get("status", "pending")
-                    print(f"[MUSIC] Polling... status={status}", flush=True)
-                    time.sleep(poll_interval)
-                    continue
+                if status in ("FIRST_SUCCESS", "SUCCESS", "complete"):
+                    # Traverse: data["data"]["response"]["sunoData"]
+                    response   = outer.get("response", {})
+                    suno_data  = response.get("sunoData", [])
 
-                track  = tracks[0]
-                status = track.get("status", "")
+                    for track in suno_data:
+                        audio_url = (
+                            track.get("sourceAudioUrl")
+                            or track.get("audioUrl")
+                            or track.get("streamAudioUrl")
+                        )
+                        if audio_url:
+                            print(f"[MUSIC] Task {status}. URL acquired.", flush=True)
+                            return audio_url
 
-                if status in ("complete", "streaming"):
-                    audio_url = (
-                        track.get("source_audio_url")
-                        or track.get("audio_url")
-                    )
-                    if audio_url:
-                        print(f"[MUSIC] Task complete. URL: {audio_url[:80]}...", flush=True)
-                        return audio_url
-                    print("[MUSIC] Task complete but no audio URL found.", flush=True)
-                    return None
+                    print(f"[MUSIC] {status} but no audio URL yet — continuing poll.", flush=True)
 
-                elif status == "failed":
-                    err = track.get("error") or track.get("failedReason", "unknown")
+                elif status in ("FAILED", "failed"):
+                    err = outer.get("errorMessage") or outer.get("errorCode", "unknown")
                     print(f"[MUSIC] Suno task failed: {err}", flush=True)
                     return None
-
-                else:
-                    print(f"[MUSIC] Polling... status={status}", flush=True)
 
             except Exception as e:
                 print(f"[MUSIC] Poll exception: {e}", flush=True)
