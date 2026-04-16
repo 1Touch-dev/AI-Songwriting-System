@@ -2,18 +2,18 @@
 music.py — Music generation backend.
 
 Backends:
-  suno        : sunoapi.org webhook (requires EC2 port 8765 open)
+  suno        : sunoapi.org (polling mode, full song with vocals)
   huggingface : Facebook MusicGen via HF Inference API (synchronous fallback)
 
 Set MUSIC_BACKEND=suno or MUSIC_BACKEND=huggingface in .env.
 If Suno fails after all retries, automatically falls back to HuggingFace.
+
+Suno generates a FULL SONG (vocals + music) — not instrumental.
+ElevenLabs (voice.py) generates vocal-only TTS output.
+These are kept SEPARATE — no mixing is performed here.
 """
-import json
 import os
-import socketserver
-import threading
 import time
-from http.server import BaseHTTPRequestHandler
 from typing import Optional
 
 import requests
@@ -21,64 +21,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SUNO_BASE_URL   = "https://api.sunoapi.org"
-HF_API_URL      = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
-CALLBACK_PORT   = int(os.getenv("SUNO_CALLBACK_PORT", "8765"))
-EC2_PUBLIC_IP   = os.getenv("EC2_PUBLIC_IP", "3.239.91.199")
+SUNO_BASE_URL = "https://api.sunoapi.org"
+HF_API_URL    = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
 
 
-# ---------------------------------------------------------------------------
-# Webhook handler (thread-safe via class-level lock)
-# ---------------------------------------------------------------------------
-class _CallbackHandler(BaseHTTPRequestHandler):
-    _lock   = threading.Lock()
-    _result: dict = {}
-    _event  = threading.Event()
-
-    @classmethod
-    def reset(cls):
-        with cls._lock:
-            cls._result.clear()
-            cls._event.clear()
-
-    @classmethod
-    def get_result(cls) -> dict:
-        with cls._lock:
-            return dict(cls._result)
-
-    def do_POST(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body   = self.rfile.read(length)
-            data   = json.loads(body.decode("utf-8"))
-            with _CallbackHandler._lock:
-                _CallbackHandler._result.update(data)
-            _CallbackHandler._event.set()
-            print(f"[MUSIC] Callback received. Keys: {list(data.keys())}", flush=True)
-        except Exception as e:
-            print(f"[MUSIC] Callback parse error: {e}", flush=True)
-        self.send_response(200)
-        self.end_headers()
-
-    def log_message(self, *args):
-        pass  # suppress HTTP logs
-
-
-# ---------------------------------------------------------------------------
-# Reusable server with SO_REUSEADDR to avoid port conflicts
-# ---------------------------------------------------------------------------
-class _ReusableTCPServer(socketserver.TCPServer):
-    allow_reuse_address = True
-
-
-# ---------------------------------------------------------------------------
-# MusicGenerator
-# ---------------------------------------------------------------------------
 class MusicGenerator:
     def __init__(self):
-        self.suno_key  = os.getenv("SUNO_API_KEY", "").strip()
-        self.hf_key    = os.getenv("hf_key", "").strip()
-        self.backend   = os.getenv("MUSIC_BACKEND", "suno")
+        self.suno_key = os.getenv("SUNO_API_KEY", "").strip()
+        self.hf_key   = os.getenv("hf_key", "").strip()
+        self.backend  = os.getenv("MUSIC_BACKEND", "suno")
 
         if self.backend == "suno" and not self.suno_key:
             print("[MUSIC] SUNO_API_KEY missing → falling back to HuggingFace.")
@@ -119,14 +70,13 @@ class MusicGenerator:
         return result
 
     # ------------------------------------------------------------------
-    # Suno via sunoapi.org webhook
+    # Suno via sunoapi.org — polling mode (no webhook required)
+    # Generates FULL SONG: vocals + music (instrumental=False)
     # ------------------------------------------------------------------
     def _suno_generate(
         self, lyrics: str, style_tags: str, title: str, attempts: int
     ) -> Optional[bytes]:
-
-        callback_url = f"http://{EC2_PUBLIC_IP}:{CALLBACK_PORT}/callback"
-        api_headers  = {
+        headers = {
             "Authorization": f"Bearer {self.suno_key}",
             "Content-Type":  "application/json",
         }
@@ -134,75 +84,56 @@ class MusicGenerator:
             "prompt":       lyrics[:3000],
             "tags":         style_tags[:200],
             "title":        title[:80],
-            "instrumental": False,
+            "instrumental": False,   # Full song — vocals + music
             "model":        "V4",
             "customMode":   True,
-            "callBackUrl":  callback_url,
         }
 
         for attempt in range(1, attempts + 1):
-            print(f"[MUSIC] Suno attempt {attempt}/{attempts}...", flush=True)
-            server = None
+            print(f"[MUSIC] Suno attempt {attempt}/{attempts} (polling mode)...", flush=True)
             try:
-                # --- start webhook server ---
-                _CallbackHandler.reset()
-                server = _ReusableTCPServer(("0.0.0.0", CALLBACK_PORT), _CallbackHandler)
-                srv_thread = threading.Thread(target=server.serve_forever, daemon=True)
-                srv_thread.start()
-
-                # --- submit to sunoapi.org ---
+                # --- submit job ---
                 resp = requests.post(
                     f"{SUNO_BASE_URL}/api/v1/generate",
-                    headers=api_headers,
+                    headers=headers,
                     json=payload,
                     timeout=30,
                 )
                 resp_data = resp.json()
 
                 if resp_data.get("code") != 200:
-                    print(f"[MUSIC] Suno submit error: {resp_data.get('msg')}", flush=True)
+                    msg = resp_data.get("msg", "unknown error")
+                    print(f"[MUSIC] Suno submit error: {msg}", flush=True)
+                    # Credit exhaustion is terminal — no point retrying
+                    if any(kw in msg.lower() for kw in ("insufficient", "credits", "credit")):
+                        print("[MUSIC] Suno credits exhausted — skipping retries.", flush=True)
+                        return None
+                    time.sleep(5)
                     continue
 
-                task_id = resp_data.get("data", {}).get("taskId", "?")
-                print(f"[MUSIC] Task {task_id} queued. Waiting for callback (max 300s)...", flush=True)
-
-                # --- wait for webhook callback ---
-                got_callback = _CallbackHandler._event.wait(timeout=300)
-
-                if not got_callback:
-                    print("[MUSIC] Callback timeout — port 8765 not reached by sunoapi.org.", flush=True)
+                task_id = resp_data.get("data", {}).get("taskId", "")
+                if not task_id:
+                    print("[MUSIC] Suno: no taskId in response.", flush=True)
                     continue
 
-                # --- parse callback ---
-                result = _CallbackHandler.get_result()
-                # Structure: {"code":200, "data":{"callbackType":"complete","data":[{...}]}}
-                inner  = result.get("data", {})
-                tracks = inner.get("data", []) if isinstance(inner, dict) else []
+                print(f"[MUSIC] Task {task_id} submitted. Polling...", flush=True)
 
-                audio_url = None
-                for track in tracks:
-                    # Prefer CDN URL (more stable) over temp URL
-                    audio_url = (
-                        track.get("source_audio_url")
-                        or track.get("audio_url")
-                    )
-                    if audio_url:
-                        print(f"[MUSIC] Audio URL: {audio_url}", flush=True)
-                        break
-
+                # --- poll until complete (max 5 min) ---
+                audio_url = self._poll_suno(task_id, headers, timeout=300)
                 if not audio_url:
-                    print(f"[MUSIC] No audio_url in callback. Data keys: {list(inner.keys())}", flush=True)
+                    print("[MUSIC] Suno polling failed / timed out.", flush=True)
                     continue
 
                 # --- download audio ---
-                dl = requests.get(audio_url, timeout=60)
+                print(f"[MUSIC] Downloading audio from Suno CDN...", flush=True)
+                dl = requests.get(audio_url, timeout=120)
                 if dl.status_code != 200:
                     print(f"[MUSIC] Download failed: HTTP {dl.status_code}", flush=True)
                     continue
 
                 audio_bytes = dl.content
                 if len(audio_bytes) < 1000:
-                    print(f"[MUSIC] Downloaded audio too small: {len(audio_bytes)} bytes", flush=True)
+                    print(f"[MUSIC] Audio too small ({len(audio_bytes)} bytes) — treating as failure.", flush=True)
                     continue
 
                 print(f"[MUSIC] Suno success: {len(audio_bytes):,} bytes", flush=True)
@@ -212,14 +143,75 @@ class MusicGenerator:
                 print(f"[MUSIC] Suno attempt {attempt} exception: {e}", flush=True)
                 time.sleep(5)
 
-            finally:
-                if server:
-                    server.shutdown()
-
         return None
 
     # ------------------------------------------------------------------
-    # HuggingFace MusicGen (synchronous fallback)
+    # Poll sunoapi.org until task status == complete/streaming
+    # Response path: data["data"]["data"][0]["source_audio_url"]
+    # ------------------------------------------------------------------
+    def _poll_suno(
+        self, task_id: str, headers: dict, timeout: int = 300
+    ) -> Optional[str]:
+        deadline      = time.time() + timeout
+        poll_interval = 10  # seconds between polls
+
+        while time.time() < deadline:
+            try:
+                resp = requests.get(
+                    f"{SUNO_BASE_URL}/api/v1/generate/record-info",
+                    headers=headers,
+                    params={"taskId": task_id},
+                    timeout=15,
+                )
+                data = resp.json()
+
+                if data.get("code") != 200:
+                    print(f"[MUSIC] Poll error: {data.get('msg', 'unknown')}", flush=True)
+                    time.sleep(poll_interval)
+                    continue
+
+                # Parse: data["data"]["data"][0]
+                outer  = data.get("data", {})
+                tracks = outer.get("data", []) if isinstance(outer, dict) else []
+
+                if not tracks:
+                    status = outer.get("status", "pending")
+                    print(f"[MUSIC] Polling... status={status}", flush=True)
+                    time.sleep(poll_interval)
+                    continue
+
+                track  = tracks[0]
+                status = track.get("status", "")
+
+                if status in ("complete", "streaming"):
+                    audio_url = (
+                        track.get("source_audio_url")
+                        or track.get("audio_url")
+                    )
+                    if audio_url:
+                        print(f"[MUSIC] Task complete. URL: {audio_url[:80]}...", flush=True)
+                        return audio_url
+                    print("[MUSIC] Task complete but no audio URL found.", flush=True)
+                    return None
+
+                elif status == "failed":
+                    err = track.get("error") or track.get("failedReason", "unknown")
+                    print(f"[MUSIC] Suno task failed: {err}", flush=True)
+                    return None
+
+                else:
+                    print(f"[MUSIC] Polling... status={status}", flush=True)
+
+            except Exception as e:
+                print(f"[MUSIC] Poll exception: {e}", flush=True)
+
+            time.sleep(poll_interval)
+
+        print("[MUSIC] Suno polling timed out.", flush=True)
+        return None
+
+    # ------------------------------------------------------------------
+    # HuggingFace MusicGen (synchronous fallback — instrumental only)
     # ------------------------------------------------------------------
     def _hf_generate(
         self, style_tags: str, title: str, attempts: int
@@ -238,19 +230,19 @@ class MusicGenerator:
                     if len(audio) > 1000:
                         print(f"[MUSIC] HuggingFace: {len(audio):,} bytes", flush=True)
                         return audio
-                    print(f"[MUSIC] HF response too small: {len(audio)} bytes")
+                    print(f"[MUSIC] HF response too small: {len(audio)} bytes", flush=True)
 
                 elif resp.status_code == 503:
                     wait = min(float(resp.json().get("estimated_time", 20)), 30)
-                    print(f"[MUSIC] HF model loading, waiting {wait:.0f}s...")
+                    print(f"[MUSIC] HF model loading, waiting {wait:.0f}s...", flush=True)
                     time.sleep(wait)
 
                 else:
-                    print(f"[MUSIC] HF error {resp.status_code}: {resp.text[:200]}")
+                    print(f"[MUSIC] HF error {resp.status_code}: {resp.text[:200]}", flush=True)
 
             except Exception as e:
-                print(f"[MUSIC] HF attempt {attempt} failed: {e}")
+                print(f"[MUSIC] HF attempt {attempt} failed: {e}", flush=True)
                 time.sleep(5)
 
-        print("[MUSIC] HuggingFace generation exhausted.")
+        print("[MUSIC] HuggingFace generation exhausted.", flush=True)
         return None

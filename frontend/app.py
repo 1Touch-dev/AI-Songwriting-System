@@ -115,18 +115,8 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
             else:
                 st.write("⚠️ Music generation failed")
 
-        # Step 4: Mix vocals + music
-        mixed_audio = None
-        if voice_audio and music_audio:
-            st.write("🎚️ Mixing vocals + music (mastering)...")
-            try:
-                from rag.audio_mixer import mix_voice_and_music
-                mixed_audio = mix_voice_and_music(voice_audio, music_audio)
-                st.write(f"✅ Mix complete: {len(mixed_audio):,} bytes")
-            except Exception as e:
-                st.write(f"⚠️ Mix failed: {e}")
-
-        # Step 5: LLM Analysis (AI Insights)
+        # Step 4: LLM Analysis (AI Insights)
+        # NOTE: Mixing is disabled. Voice (ElevenLabs) and Music (Suno) are independent outputs.
         st.write("🔍 Running Lyrical Analysis (AI Insights)...")
         analysis_res = pipeline.run(
             artists=params["artists"],
@@ -141,13 +131,12 @@ def handle_production_flow(pipeline, params, enable_voice, enable_music, uploade
     if not voice_audio:
         st.error("⚠️ Vocal Synthesis Failed. Check ElevenLabs API Key.")
     if enable_music and not uploaded_inst and not music_audio:
-        st.warning("⚠️ Music generation failed — check EC2 logs.")
+        st.warning("⚠️ Music generation failed — check Suno credits or API.")
     if not analysis_res.get("analysis"):
         st.warning("⚠️ AI Insights could not be completed.")
 
     res["_voice"] = voice_audio
     res["_music"] = music_audio
-    res["_mixed"] = mixed_audio
     res["_analysis"] = analysis_res.get("analysis")
     res["_timestamp"] = datetime.now().strftime("%H:%M:%S")
     return res
@@ -254,26 +243,20 @@ with col_preview:
         res = st.session_state.history[0]
         st.subheader(f"✨ Latest Project: {res['_timestamp']}")
         
-        # Multimodal Audio Players
+        # Multimodal Audio Players (independent — no mixing)
         with st.expander("🔊 Production Playback", expanded=True):
             ts = res["_timestamp"]
 
-            # ── Mixed Master (primary output) ──────────────────────────
-            mixed = res.get("_mixed")
-            if mixed:
-                st.write("🎧 **Final Mix (Vocals + Music — Mastered)**")
-                st.write(f"Size: {len(mixed):,} bytes")
-                st.audio(mixed, format="audio/mpeg")
-                st.download_button("📥 Download Final Mix", mixed,
-                                   file_name=f"final_mix_{ts}.mp3", mime="audio/mpeg")
-                st.divider()
-
-            # ── Voice stem ────────────────────────────────────────────
+            # ── Debug ─────────────────────────────────────────────────
             voice = res.get("_voice")
-            st.write("DEBUG VOICE:", voice is not None,
-                     f"| {len(voice):,} bytes" if voice else "")
+            music = res.get("_music")
+            st.write("VOICE:", len(voice) if voice else 0)
+            st.write("MUSIC:", len(music) if music else 0)
+            st.divider()
+
+            # ── Vocal Output — ElevenLabs TTS ─────────────────────────
             if voice:
-                st.write("🎙️ **Vocal Stem (ElevenLabs)**")
+                st.write("🎙️ **Vocal Output (ElevenLabs)**")
                 st.audio(voice, format="audio/mpeg")
                 st.download_button("📥 Download Vocal", voice,
                                    file_name=f"voice_{ts}.mp3", mime="audio/mpeg",
@@ -281,19 +264,21 @@ with col_preview:
             else:
                 st.error("Vocal generation failed — check ElevenLabs API key.")
 
-            # ── Music stem ────────────────────────────────────────────
-            music = res.get("_music")
-            st.write("DEBUG MUSIC:", music is not None,
-                     f"| {len(music):,} bytes" if music else "")
+            st.divider()
+
+            # ── Full Song Output — Suno AI (vocals + music) ───────────
             if music:
-                st.write("🎵 **Music Stem (Suno AI)**")
+                st.write("🎵 **Full Song Output (Suno AI)**")
                 st.audio(music, format="audio/mpeg")
-                st.download_button("📥 Download Music", music,
+                st.download_button("📥 Download Full Song", music,
                                    file_name=f"music_{ts}.mp3", mime="audio/mpeg",
                                    key="dl_music")
+            else:
+                st.warning("Music generation failed — check Suno credits or API.")
 
             # ── Uploaded instrumental ─────────────────────────────────
             if uploaded_inst:
+                st.divider()
                 st.write("🎹 **Uploaded Instrumental**")
                 st.audio(uploaded_inst)
 

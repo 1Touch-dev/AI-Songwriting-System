@@ -225,14 +225,9 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
         except Exception as e:
             print(f"[API] Music error: {e}")
 
-    # ── Step 4: Mix ────────────────────────────────────────────────────
+    # Mixing disabled: voice (ElevenLabs TTS) and music (Suno full song)
+    # are independent outputs — no hybrid combining.
     mixed_bytes: Optional[bytes] = None
-    if voice_bytes and music_bytes:
-        try:
-            from rag.audio_mixer import mix_voice_and_music
-            mixed_bytes = mix_voice_and_music(voice_bytes, music_bytes)
-        except Exception as e:
-            print(f"[API] Mix error: {e}")
 
     # ── Step 5: Analysis ───────────────────────────────────────────────
     analysis = None

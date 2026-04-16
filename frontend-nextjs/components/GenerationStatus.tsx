@@ -17,10 +17,9 @@ interface Props {
 }
 
 const STEP_ICONS: Record<string, string> = {
-  lyrics: '🧠',
-  voice: '🎤',
-  music: '🎵',
-  mix: '🎚️',
+  lyrics:   '🧠',
+  voice:    '🎤',
+  music:    '🎵',
   analysis: '🔍',
 }
 

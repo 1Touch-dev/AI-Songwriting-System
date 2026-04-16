@@ -55,9 +55,8 @@ const STUDIO_HISTORY_KEY = 'sonicflow_history'
 function buildSteps(activeStep: string, completedSteps: Set<string>, failedSteps: Set<string>): PipelineStep[] {
   const steps = [
     { id: 'lyrics',   label: 'Synthesizing Lyrical Theme' },
-    { id: 'voice',    label: 'Vocal Synthesis (ElevenLabs)' },
-    { id: 'music',    label: 'Music Production (Suno AI)' },
-    { id: 'mix',      label: 'Mixing & Mastering' },
+    { id: 'voice',    label: 'Vocal Output (ElevenLabs)' },
+    { id: 'music',    label: 'Full Song (Suno AI)' },
     { id: 'analysis', label: 'AI Lyrical Analysis' },
   ]
   return steps.map(s => ({
@@ -177,11 +176,10 @@ export default function StudioPage() {
     let stepTimer: ReturnType<typeof setTimeout>
     let voiceTimer: ReturnType<typeof setTimeout>
     let musicTimer: ReturnType<typeof setTimeout>
-    let mixTimer: ReturnType<typeof setTimeout>
 
     const clearAllTimers = () => {
       clearTimeout(stepTimer); clearTimeout(voiceTimer)
-      clearTimeout(musicTimer); clearTimeout(mixTimer)
+      clearTimeout(musicTimer)
     }
 
     try {
@@ -205,8 +203,7 @@ export default function StudioPage() {
       // Simulate step progression while waiting for API
       stepTimer  = setTimeout(() => { markDone('lyrics'); nextStep('voice') }, 3000)
       voiceTimer = setTimeout(() => { markDone('voice'); nextStep('music') }, 8000)
-      musicTimer = setTimeout(() => { markDone('music'); nextStep('mix') }, 15000)
-      mixTimer   = setTimeout(() => { markDone('mix'); nextStep('analysis') }, 18000)
+      musicTimer = setTimeout(() => { markDone('music'); nextStep('analysis') }, 15000)
 
       const res = await generateSong(params, token, abortRef.current?.signal)
 
@@ -216,10 +213,9 @@ export default function StudioPage() {
       const failed = new Set<string>()
       if (!res.voice_audio_b64) failed.add('voice')
       if (!res.music_audio_b64) failed.add('music')
-      if (!res.mixed_audio_b64 && res.voice_audio_b64 && res.music_audio_b64) failed.add('mix')
       if (!res.analysis) failed.add('analysis')
       setFailedSteps(failed)
-      setCompletedSteps(new Set(['lyrics','voice','music','mix','analysis'].filter(s => !failed.has(s))))
+      setCompletedSteps(new Set(['lyrics','voice','music','analysis'].filter(s => !failed.has(s))))
       setActiveStep('')
 
       setResult(res)
@@ -682,19 +678,18 @@ export default function StudioPage() {
                 <div className="glass-panel p-5 space-y-4">
                   <h3 className="section-title">Production Playback</h3>
 
-                  {result.mixed_audio_b64 && (
-                    <AudioPlayer
-                      b64={result.mixed_audio_b64}
-                      label="Final Mix (Vocals + Music — Mastered)"
-                      filename={`final_mix_${result.timestamp}.mp3`}
-                      accentColor="#8ff5ff"
-                    />
-                  )}
+                  {/* Debug sizes */}
+                  <div className="text-xs text-text-muted font-mono">
+                    VOICE: {result.voice_audio_b64 ? `${Math.round(result.voice_audio_b64.length * 0.75 / 1024)} KB` : '0'}
+                    {' · '}
+                    MUSIC: {result.music_audio_b64 ? `${Math.round(result.music_audio_b64.length * 0.75 / 1024)} KB` : '0'}
+                  </div>
 
+                  {/* Vocal Output — ElevenLabs TTS */}
                   {result.voice_audio_b64 ? (
                     <AudioPlayer
                       b64={result.voice_audio_b64}
-                      label="Vocal Stem (ElevenLabs)"
+                      label="Vocal Output (ElevenLabs)"
                       filename={`voice_${result.timestamp}.mp3`}
                       accentColor="#d277ff"
                     />
@@ -706,10 +701,11 @@ export default function StudioPage() {
                     </div>
                   )}
 
+                  {/* Full Song Output — Suno AI (vocals + music) */}
                   {result.music_audio_b64 ? (
                     <AudioPlayer
                       b64={result.music_audio_b64}
-                      label="Music Stem (Suno AI)"
+                      label="Full Song Output (Suno AI)"
                       filename={`music_${result.timestamp}.mp3`}
                       accentColor="#c3f400"
                     />
@@ -717,7 +713,7 @@ export default function StudioPage() {
                     <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
                       style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
                       <Info size={14} />
-                      Music generation not available — check Suno API / EC2 logs.
+                      Music generation failed — check Suno credits or API.
                     </div>
                   )}
 
