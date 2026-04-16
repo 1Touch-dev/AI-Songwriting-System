@@ -718,7 +718,7 @@ export default function StudioPage() {
                     <div className="flex items-center gap-2 text-error text-xs p-3 rounded-xl"
                       style={{ background: 'rgba(255,71,87,0.08)' }}>
                       <AlertCircle size={14} />
-                      Vocal generation failed — check ElevenLabs API key.
+                      Vocal generation failed — {result.voice_error || 'check ElevenLabs API key'}
                     </div>
                   )}
 
@@ -734,7 +734,7 @@ export default function StudioPage() {
                     <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
                       style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
                       <Info size={14} />
-                      Music generation failed — check Suno credits or API.
+                      Music generation failed — {result.music_error || 'check Suno credits or API'}
                     </div>
                   )}
 

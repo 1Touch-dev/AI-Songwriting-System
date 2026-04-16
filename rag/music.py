@@ -105,34 +105,55 @@ class MusicGenerator:
                     json=payload,
                     timeout=30,
                 )
-                resp_data = resp.json()
+
+                if resp.status_code == 401:
+                    print("[MUSIC] Suno: 401 Unauthorized — check SUNO_API_KEY.", flush=True)
+                    return None   # hard failure, no retries
+                if resp.status_code == 429:
+                    wait = 30
+                    print(f"[MUSIC] Suno: 429 rate-limited — waiting {wait}s.", flush=True)
+                    time.sleep(wait)
+                    continue
+                if resp.status_code >= 500:
+                    print(f"[MUSIC] Suno: {resp.status_code} server error — retrying.", flush=True)
+                    time.sleep(10)
+                    continue
+
+                try:
+                    resp_data = resp.json()
+                except Exception:
+                    print(f"[MUSIC] Suno: non-JSON response ({resp.status_code}): {resp.text[:200]}", flush=True)
+                    time.sleep(5)
+                    continue
 
                 if resp_data.get("code") != 200:
                     msg = resp_data.get("msg", "unknown error")
                     print(f"[MUSIC] Suno submit error: {msg}", flush=True)
                     # Credit exhaustion is terminal — no point retrying
-                    if any(kw in msg.lower() for kw in ("insufficient", "credits", "credit")):
-                        print("[MUSIC] Suno credits exhausted — skipping retries.", flush=True)
+                    if any(kw in msg.lower() for kw in ("insufficient", "credits", "credit", "quota")):
+                        print("[MUSIC] Suno credits exhausted — falling back.", flush=True)
                         return None
                     time.sleep(5)
                     continue
 
                 task_id = resp_data.get("data", {}).get("taskId", "")
                 if not task_id:
-                    print("[MUSIC] Suno: no taskId in response.", flush=True)
+                    print(f"[MUSIC] Suno: no taskId in response: {resp_data}", flush=True)
                     continue
 
                 print(f"[MUSIC] Task {task_id} submitted. Polling...", flush=True)
 
-                # --- poll until complete (max 5 min) ---
-                audio_url = self._poll_suno(task_id, headers, timeout=300)
+                # --- poll until complete (max 6 min) ---
+                audio_url = self._poll_suno(task_id, headers, timeout=360)
                 if not audio_url:
                     print("[MUSIC] Suno polling failed / timed out.", flush=True)
+                    if attempt < attempts:
+                        time.sleep(5)
                     continue
 
                 # --- download audio ---
-                print(f"[MUSIC] Downloading audio from Suno CDN...", flush=True)
-                dl = requests.get(audio_url, timeout=120)
+                print("[MUSIC] Downloading audio from Suno CDN...", flush=True)
+                dl = requests.get(audio_url, timeout=120, stream=False)
                 if dl.status_code != 200:
                     print(f"[MUSIC] Download failed: HTTP {dl.status_code}", flush=True)
                     continue
@@ -145,6 +166,12 @@ class MusicGenerator:
                 print(f"[MUSIC] Suno success: {len(audio_bytes):,} bytes", flush=True)
                 return audio_bytes
 
+            except requests.exceptions.Timeout:
+                print(f"[MUSIC] Suno attempt {attempt} timed out.", flush=True)
+                time.sleep(5)
+            except requests.exceptions.ConnectionError as e:
+                print(f"[MUSIC] Suno attempt {attempt} connection error: {e}", flush=True)
+                time.sleep(10)
             except Exception as e:
                 print(f"[MUSIC] Suno attempt {attempt} exception: {e}", flush=True)
                 time.sleep(5)
@@ -163,10 +190,11 @@ class MusicGenerator:
     # "FIRST_SUCCESS" means ≥1 track is ready — we can use it immediately.
     # ------------------------------------------------------------------
     def _poll_suno(
-        self, task_id: str, headers: dict, timeout: int = 300
+        self, task_id: str, headers: dict, timeout: int = 360
     ) -> Optional[str]:
         deadline      = time.time() + timeout
-        poll_interval = 10  # seconds between polls
+        poll_interval = 10   # seconds between polls
+        consecutive_errors = 0
 
         while time.time() < deadline:
             try:
@@ -174,23 +202,44 @@ class MusicGenerator:
                     f"{SUNO_BASE_URL}/api/v1/generate/record-info",
                     headers=headers,
                     params={"taskId": task_id},
-                    timeout=15,
+                    timeout=20,
                 )
-                data = resp.json()
+
+                if resp.status_code == 401:
+                    print("[MUSIC] Poll: 401 Unauthorized.", flush=True)
+                    return None
+                if resp.status_code >= 500:
+                    consecutive_errors += 1
+                    print(f"[MUSIC] Poll: {resp.status_code} server error ({consecutive_errors}).", flush=True)
+                    if consecutive_errors >= 5:
+                        print("[MUSIC] Too many server errors — aborting poll.", flush=True)
+                        return None
+                    time.sleep(poll_interval)
+                    continue
+
+                try:
+                    data = resp.json()
+                except Exception:
+                    print(f"[MUSIC] Poll: non-JSON response: {resp.text[:200]}", flush=True)
+                    time.sleep(poll_interval)
+                    continue
+
+                consecutive_errors = 0
 
                 if data.get("code") != 200:
-                    print(f"[MUSIC] Poll error: {data.get('msg', 'unknown')}", flush=True)
+                    print(f"[MUSIC] Poll error: code={data.get('code')} msg={data.get('msg', 'unknown')}", flush=True)
                     time.sleep(poll_interval)
                     continue
 
                 outer  = data.get("data", {})
                 status = outer.get("status", "PENDING")
-                print(f"[MUSIC] Polling... status={status}", flush=True)
+                elapsed = int(time.time() - (deadline - timeout))
+                print(f"[MUSIC] Polling... status={status} elapsed={elapsed}s", flush=True)
 
                 if status in ("FIRST_SUCCESS", "SUCCESS", "complete"):
                     # Traverse: data["data"]["response"]["sunoData"]
-                    response   = outer.get("response", {})
-                    suno_data  = response.get("sunoData", [])
+                    response  = outer.get("response", {})
+                    suno_data = response.get("sunoData", [])
 
                     for track in suno_data:
                         audio_url = (
@@ -202,13 +251,21 @@ class MusicGenerator:
                             print(f"[MUSIC] Task {status}. URL acquired.", flush=True)
                             return audio_url
 
+                    # URL not in response yet — keep polling (Suno can return
+                    # FIRST_SUCCESS before the URL field is populated)
                     print(f"[MUSIC] {status} but no audio URL yet — continuing poll.", flush=True)
 
-                elif status in ("FAILED", "failed"):
+                elif status in ("FAILED", "failed", "ERROR", "error"):
                     err = outer.get("errorMessage") or outer.get("errorCode", "unknown")
                     print(f"[MUSIC] Suno task failed: {err}", flush=True)
                     return None
 
+            except requests.exceptions.Timeout:
+                print("[MUSIC] Poll request timed out — retrying.", flush=True)
+            except requests.exceptions.ConnectionError as e:
+                print(f"[MUSIC] Poll connection error: {e}", flush=True)
+                time.sleep(poll_interval)
+                continue
             except Exception as e:
                 print(f"[MUSIC] Poll exception: {e}", flush=True)
 
@@ -230,7 +287,7 @@ class MusicGenerator:
         for attempt in range(1, attempts + 1):
             try:
                 print(f"[MUSIC] HuggingFace attempt {attempt}/{attempts}...", flush=True)
-                resp = requests.post(HF_API_URL, headers=headers, json=payload, timeout=120)
+                resp = requests.post(HF_API_URL, headers=headers, json=payload, timeout=180)
 
                 if resp.status_code == 200:
                     audio = resp.content
@@ -240,13 +297,31 @@ class MusicGenerator:
                     print(f"[MUSIC] HF response too small: {len(audio)} bytes", flush=True)
 
                 elif resp.status_code == 503:
-                    wait = min(float(resp.json().get("estimated_time", 20)), 30)
-                    print(f"[MUSIC] HF model loading, waiting {wait:.0f}s...", flush=True)
+                    try:
+                        wait = min(float(resp.json().get("estimated_time", 20)), 45)
+                    except Exception:
+                        wait = 20
+                    print(f"[MUSIC] HF model loading — waiting {wait:.0f}s...", flush=True)
                     time.sleep(wait)
+                    # Don't count this as a failed attempt — model was just cold-starting
+                    continue
+
+                elif resp.status_code == 401:
+                    print("[MUSIC] HF: 401 Unauthorized — check hf_key.", flush=True)
+                    return None
+
+                elif resp.status_code == 429:
+                    print("[MUSIC] HF: rate limited — waiting 30s.", flush=True)
+                    time.sleep(30)
+                    continue
 
                 else:
                     print(f"[MUSIC] HF error {resp.status_code}: {resp.text[:200]}", flush=True)
+                    time.sleep(5)
 
+            except requests.exceptions.Timeout:
+                print(f"[MUSIC] HF attempt {attempt} timed out.", flush=True)
+                time.sleep(5)
             except Exception as e:
                 print(f"[MUSIC] HF attempt {attempt} failed: {e}", flush=True)
                 time.sleep(5)

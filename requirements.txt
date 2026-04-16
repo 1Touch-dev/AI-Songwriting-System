@@ -28,3 +28,11 @@ streamlit>=1.28.0
 
 # Apify (optional scraping)
 apify-client>=1.5.0
+
+# Voice synthesis
+elevenlabs>=2.0.0
+
+# FastAPI backend
+fastapi>=0.109.0
+uvicorn>=0.27.0
+fpdf2>=2.7.0

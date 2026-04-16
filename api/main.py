@@ -121,6 +121,8 @@ class GenerateResponse(BaseModel):
     voice_audio_b64: Optional[str]
     music_audio_b64: Optional[str]
     mixed_audio_b64: Optional[str]
+    voice_error: Optional[str]
+    music_error: Optional[str]
     timestamp: str
 
 class Project(BaseModel):
@@ -206,23 +208,42 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
 
     # ── Step 2: Voice synthesis ────────────────────────────────────────
     voice_bytes: Optional[bytes] = None
+    voice_error: Optional[str]  = None
     if req.enable_voice:
         try:
             voice_bytes = pipeline.voice_gen.generate_voice(lyrics)
             if voice_bytes and len(voice_bytes) < 1000:
+                voice_error = f"Audio too small ({len(voice_bytes)} bytes)"
                 voice_bytes = None
+            elif not voice_bytes:
+                vg = pipeline.voice_gen
+                if not vg.api_key:
+                    voice_error = "ELEVENLABS_API_KEY not set"
+                elif vg._import_error:
+                    voice_error = f"Package error: {vg._import_error}"
+                else:
+                    voice_error = "All retries exhausted — check API key or ElevenLabs quota"
         except Exception as e:
+            voice_error = str(e)
             print(f"[API] Voice error: {e}")
 
     # ── Step 3: Music generation ───────────────────────────────────────
     music_bytes: Optional[bytes] = None
+    music_error: Optional[str]  = None
     if req.enable_music:
         try:
             style_tags = f"{req.artists[0]} style, {req.language}"
             music_bytes = pipeline.music_gen.run_full_generation(
                 lyrics, style_tags, res.get("theme", req.theme)
             )
+            if not music_bytes:
+                mg = pipeline.music_gen
+                if mg.backend == "disabled":
+                    music_error = "Music backend disabled (no API keys)"
+                else:
+                    music_error = "All backends failed — check Suno credits and HuggingFace key"
         except Exception as e:
+            music_error = str(e)
             print(f"[API] Music error: {e}")
 
     # Mixing disabled: voice (ElevenLabs TTS) and music (Suno full song)
@@ -265,6 +286,8 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
         voice_audio_b64=to_b64(voice_bytes),
         music_audio_b64=to_b64(music_bytes),
         mixed_audio_b64=to_b64(mixed_bytes),
+        voice_error=voice_error,
+        music_error=music_error,
         timestamp=datetime.now().strftime("%H:%M:%S"),
     )
 

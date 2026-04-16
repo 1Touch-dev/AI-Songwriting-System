@@ -31,6 +31,8 @@ export interface GenerateResult {
   voice_audio_b64: string | null   // base64-encoded MP3
   music_audio_b64: string | null
   mixed_audio_b64: string | null
+  voice_error: string | null
+  music_error: string | null
   timestamp: string
 }
 
