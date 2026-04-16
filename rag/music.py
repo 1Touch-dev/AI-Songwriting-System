@@ -21,8 +21,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SUNO_BASE_URL = "https://api.sunoapi.org"
-HF_API_URL    = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
+SUNO_BASE_URL   = "https://api.sunoapi.org"
+HF_API_URL      = "https://router.huggingface.co/hf-inference/models/facebook/musicgen-small"
+EC2_PUBLIC_IP   = os.getenv("EC2_PUBLIC_IP", "3.239.91.199")
+CALLBACK_PORT   = int(os.getenv("SUNO_CALLBACK_PORT", "8765"))
 
 
 class MusicGenerator:
@@ -80,6 +82,9 @@ class MusicGenerator:
             "Authorization": f"Bearer {self.suno_key}",
             "Content-Type":  "application/json",
         }
+        # sunoapi.org requires callBackUrl for validation even in polling mode.
+        # We provide the EC2 address but rely on polling — not the webhook — for results.
+        callback_url = f"http://{EC2_PUBLIC_IP}:{CALLBACK_PORT}/callback"
         payload = {
             "prompt":       lyrics[:3000],
             "tags":         style_tags[:200],
@@ -87,6 +92,7 @@ class MusicGenerator:
             "instrumental": False,   # Full song — vocals + music
             "model":        "V4",
             "customMode":   True,
+            "callBackUrl":  callback_url,
         }
 
         for attempt in range(1, attempts + 1):
