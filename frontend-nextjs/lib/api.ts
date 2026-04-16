@@ -55,6 +55,12 @@ export async function saveProject(
   return res.data
 }
 
+export async function deleteProject(token: string, projectId: string): Promise<void> {
+  await client.delete(`/projects/${projectId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
 export function b64ToAudioUrl(b64: string): string {
   const binary = atob(b64)
   const bytes = new Uint8Array(binary.length)

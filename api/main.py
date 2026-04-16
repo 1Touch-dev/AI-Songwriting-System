@@ -276,6 +276,16 @@ def get_projects(token: str = Depends(verify_token)):
     return {"projects": list(reversed(projects))}
 
 
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str, token: str = Depends(verify_token)):
+    projects = _load_projects()
+    filtered = [p for p in projects if p.get("id") != project_id]
+    if len(filtered) == len(projects):
+        raise HTTPException(status_code=404, detail="Project not found")
+    _save_projects(filtered)
+    return {"deleted": project_id}
+
+
 @app.post("/projects", response_model=Project)
 def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
     projects = _load_projects()

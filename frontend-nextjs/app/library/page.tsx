@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Music2, Mic2, Radio, Search, ArrowLeft, Clock, ExternalLink } from 'lucide-react'
-import { getProjects } from '@/lib/api'
+import { Music2, Mic2, Radio, Search, ArrowLeft, Clock, ExternalLink, Trash2, X } from 'lucide-react'
+import { getProjects, deleteProject } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
 export default function LibraryPage() {
@@ -13,15 +13,30 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [token, setToken] = useState('')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
-    const token = localStorage.getItem('sonicflow_token')
-    if (!token) { router.replace('/login'); return }
-    getProjects(token)
+    const stored = localStorage.getItem('sonicflow_token')
+    if (!stored) { router.replace('/login'); return }
+    setToken(stored)
+    getProjects(stored)
       .then(setProjects)
       .catch(e => setError(e?.response?.data?.detail || e.message || 'Network error'))
       .finally(() => setLoading(false))
   }, [])
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    try {
+      await deleteProject(token, id)
+      setProjects(prev => prev.filter(p => p.id !== id))
+    } catch {
+      // silently ignore — show no error toast to keep UX clean
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   const filtered = projects.filter(p =>
     !search ||
@@ -127,7 +142,13 @@ export default function LibraryPage() {
         ) : (
           <div className="grid gap-4">
             {filtered.map(p => (
-              <ProjectCard key={p.id} project={p} onClick={() => openInStudio(p)} />
+              <ProjectCard
+                key={p.id}
+                project={p}
+                onClick={() => openInStudio(p)}
+                onDelete={() => handleDelete(p.id)}
+                deleting={deletingId === p.id}
+              />
             ))}
           </div>
         )}
@@ -136,39 +157,62 @@ export default function LibraryPage() {
   )
 }
 
-function ProjectCard({ project: p, onClick }: { project: Project; onClick: () => void }) {
+function ProjectCard({
+  project: p,
+  onClick,
+  onDelete,
+  deleting,
+}: {
+  project: Project
+  onClick: () => void
+  onDelete: () => void
+  deleting: boolean
+}) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirmDelete) {
+      onDelete()
+      setConfirmDelete(false)
+    } else {
+      setConfirmDelete(true)
+    }
+  }
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConfirmDelete(false)
+  }
+
   return (
-    <button
-      onClick={onClick}
-      className="glass-panel-hover p-5 flex items-start gap-5 w-full text-left group cursor-pointer overflow-hidden"
-      style={{ display: 'flex' }}
+    <div
+      className="glass-panel-hover p-5 flex items-start gap-5 group cursor-pointer overflow-hidden relative"
+      onClick={!confirmDelete ? onClick : undefined}
+      style={{ opacity: deleting ? 0.4 : 1, transition: 'opacity 0.2s' }}
     >
       {/* Icon */}
-      <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-colors"
+      <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
         style={{ background: 'rgba(143,245,255,0.08)' }}>
         <Music2 size={20} style={{ color: '#8ff5ff', opacity: 0.7 }} />
       </div>
 
-      {/* Meta — min-w-0 is critical for flex truncation */}
+      {/* Meta */}
       <div className="flex-1 min-w-0 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
-          {/* Title + subtitle — own min-w-0 for inner truncation */}
           <div className="min-w-0 flex-1 overflow-hidden">
             <h3 className="font-display font-semibold text-base text-text-primary truncate group-hover:text-white transition-colors">
               {p.artist} — {p.title}
             </h3>
-            <p className="text-sm text-text-muted mt-0.5 truncate">
-              {p.theme}
-            </p>
+            <p className="text-sm text-text-muted mt-0.5 truncate">{p.theme}</p>
           </div>
-          {/* Timestamp — never shrinks */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Clock size={12} className="text-text-muted" />
             <span className="text-xs text-text-muted whitespace-nowrap">{p.timestamp}</span>
           </div>
         </div>
 
-        {/* Lyrics preview — break-words prevents CJK/Arabic overflow */}
+        {/* Lyrics preview */}
         <p className="text-xs text-text-muted mt-2 leading-relaxed overflow-hidden"
           style={{
             display: '-webkit-box',
@@ -181,7 +225,7 @@ function ProjectCard({ project: p, onClick }: { project: Project; onClick: () =>
           {p.lyrics.replace(/\[[^\]]+\]/g, '').trim().slice(0, 200)}
         </p>
 
-        {/* Tags */}
+        {/* Tags + actions row */}
         <div className="flex items-center gap-2 mt-3 flex-wrap">
           {p.has_voice && (
             <span className="px-2 py-0.5 rounded-md text-xs flex items-center gap-1 flex-shrink-0"
@@ -201,12 +245,48 @@ function ProjectCard({ project: p, onClick }: { project: Project; onClick: () =>
               {Math.floor(p.duration_s / 60)}:{String(Math.floor(p.duration_s % 60)).padStart(2,'0')}
             </span>
           )}
-          <span className="ml-auto text-xs flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ color: '#8ff5ff' }}>
-            <ExternalLink size={11} /> Open in Studio
-          </span>
+
+          {/* Open in Studio hint */}
+          {!confirmDelete && (
+            <span className="ml-auto text-xs flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-60 transition-opacity"
+              style={{ color: '#8ff5ff' }}>
+              <ExternalLink size={11} /> Open in Studio
+            </span>
+          )}
+
+          {/* Delete controls */}
+          <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto" onClick={e => e.stopPropagation()}>
+            {confirmDelete ? (
+              <>
+                <button
+                  onClick={handleDeleteClick}
+                  disabled={deleting}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all"
+                  style={{ background: 'rgba(255,71,87,0.18)', color: '#ff4757', border: '1px solid rgba(255,71,87,0.35)' }}
+                >
+                  <Trash2 size={11} /> {deleting ? 'Deleting…' : 'Confirm'}
+                </button>
+                <button
+                  onClick={handleCancelDelete}
+                  className="flex items-center justify-center w-6 h-6 rounded-lg text-text-muted hover:text-text-primary transition-colors"
+                  style={{ background: 'rgba(255,255,255,0.06)' }}
+                >
+                  <X size={12} />
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleDeleteClick}
+                title="Delete project"
+                className="flex items-center justify-center w-7 h-7 rounded-lg text-text-muted opacity-0 group-hover:opacity-100 hover:text-error transition-all"
+                style={{ background: 'rgba(255,255,255,0.05)' }}
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
