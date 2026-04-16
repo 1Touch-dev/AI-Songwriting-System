@@ -7,6 +7,7 @@
 1. [What is SonicFlow Studio?](#1-what-is-sonicflow-studio)
 2. [Technology Stack](#2-technology-stack)
 3. [System Architecture Overview](#3-system-architecture-overview)
+   - 3.1 [How the System Works — End-to-End Flow](#31-how-the-system-works--end-to-end-flow)
 4. [Getting Started — Step-by-Step](#4-getting-started--step-by-step)
 5. [The Sidebar — Studio Controls](#5-the-sidebar--studio-controls)
    - 5.1 [Artist Search](#51-artist-search)
@@ -117,6 +118,103 @@ FastAPI Backend (port 8000)
 6. Both audio files are base64-encoded and returned to the browser
 7. Frontend decodes them into playable audio blobs
 8. Project metadata (no audio — metadata only) is saved to `POST /projects`
+
+---
+
+### 3.1 How the System Works — End-to-End Flow
+
+This section shows exactly what happens from the moment you click **IGNITE PRODUCTION** to when you hear your song.
+
+```
+STEP 1 — USER INPUT
+    Browser (Next.js)
+        Artist name(s), Theme, Structure, Language, Bars, Creativity,
+        Style Strength, Enable Voice toggle, Enable Music toggle
+            |
+            | POST /generate  (Bearer token auth)
+            v
+
+STEP 2 — FASTAPI BACKEND receives request
+            |
+            v
+
+STEP 3 — RAG LYRICS PIPELINE (rag/pipeline.py)
+    a) Query Expansion
+           GPT-4o-mini expands theme into multiple search queries
+    b) Hybrid Retrieval
+           FAISS vector search  +  BM25 keyword search
+           -> Merge, de-duplicate, re-rank results
+           -> Top-K chunks of real artist lyrics fetched
+    c) Prompt Assembly (rag/prompt_builder.py)
+           System prompt with style guide + output template
+           User prompt with theme, structure, bars constraint
+           Retrieved lyric chunks as style context
+    d) Lyrics Generation
+           GPT-4o generates song lyrics matching artist style
+           Bars validator enforces exact line count
+           Chorus validator checks repetition / hook presence
+    e) Parallel Variant Generation
+           3 variants generated in parallel threads
+           Fidelity scoring picks best version
+            |
+            | lyrics string produced
+            v
+
+STEP 4a — VOCAL SYNTHESIS  (independent, parallel with Step 4b)
+    ElevenLabs Multilingual v2
+        Input  : full lyrics text
+        Output : MP3 audio bytes  (TTS — reads lyrics aloud)
+        -> Returned as voice_audio_b64 in JSON response
+
+STEP 4b — FULL SONG GENERATION  (independent, parallel with Step 4a)
+    Suno AI v4  via  sunoapi.org
+        Input  : lyrics + style tags (artist name, language)
+        Step 1 : POST /api/v1/generate  ->  taskId returned
+        Step 2 : Poll GET /api/v1/generate/record-info?taskId=...
+                 every 10 seconds until status = FIRST_SUCCESS or SUCCESS
+        Step 3 : Extract sourceAudioUrl from sunoData[0]
+        Step 4 : Download MP3 bytes from URL
+        -> Returned as music_audio_b64 in JSON response
+    Fallback  : HuggingFace MusicGen (instrumental only)
+                if Suno fails or times out
+
+STEP 5 — ANALYSIS  (post-generation)
+    GPT-4o-mini re-reads generated lyrics
+        -> Produces structured analysis:
+           theme, tone, emotional arc, hook quality, suggestions
+        -> Returned in analysis field of JSON response
+
+STEP 6 — RESPONSE ASSEMBLED
+    FastAPI returns JSON:
+        lyrics            (full text)
+        versions[]        (3 lyric variants with fidelity scores)
+        voice_audio_b64   (base64 MP3 — ElevenLabs vocal)
+        music_audio_b64   (base64 MP3 — Suno full song)
+        analysis          (GPT-4o-mini creative insights)
+        retrieval_quality (0.0 – 1.0 score)
+        latency_ms        (total pipeline time)
+            |
+            | HTTP response back to browser
+            v
+
+STEP 7 — FRONTEND RENDERS OUTPUT (Next.js)
+    Decodes base64 -> Blob URLs -> <audio> elements
+    Renders lyrics, variants, insights, stats tabs
+    Shows VOICE KB and MUSIC KB debug readout
+
+STEP 8 — AUTO-SAVE TO LIBRARY
+    Frontend calls POST /projects with metadata
+    Backend writes to data/projects.json
+    Project appears in Library page instantly
+```
+
+#### Key Design Decisions
+
+- **No mixing**: ElevenLabs (pure TTS vocal) and Suno AI (full AI song with its own vocals) are two independent outputs. They are NOT combined or mixed — each serves a different purpose.
+- **Polling not webhook**: Suno's webhook delivery is unreliable in hosted environments. The system uses active polling every 10s with a 5-minute timeout.
+- **Base64 transport**: Audio bytes are base64-encoded in the JSON response so no separate CDN or file storage is needed — audio lives only in the browser session.
+- **Bars enforcement at two layers**: The prompt explicitly requests the exact bar count. A post-processing validator (`rag/validator.py`) then trims or pads to match, counting only lyrical lines (section headers like `[Verse 1]` are NOT counted).
+- **Library persistence**: Only metadata is stored server-side (no audio files). Audio is regenerated if needed. This keeps storage costs near zero.
 
 ---
 

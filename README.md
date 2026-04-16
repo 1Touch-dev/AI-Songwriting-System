@@ -1,71 +1,61 @@
-# AI Songwriting System (RAG MVP)
+# SonicFlow Studio v3
 
-Generate original song lyrics in the style of any artist — or blend multiple artists — using Retrieval-Augmented Generation.
+An AI-powered, full-stack music production platform. Enter a theme and an artist style — get back a complete song with vocals and music in one click.
 
----
-
-## Architecture
-
-```mermaid
-graph TD;
-    A[User Theme + Artists] --> B[LLM Query Expansion];
-    B --> C[Multi-Query Hybrid Search];
-    C --> D[FAISS Vector Search];
-    C --> E[BM25 Keyword Search];
-    D --> F[Merge & De-dupe];
-    E --> F;
-    F --> G[LLM Reranker];
-    G --> H[Top-K Balanced Chunks];
-    H --> I[LLM Generator x 3 Parallel Threads];
-    I --> J[Chorus Validator];
-    J --> K[Fidelity Scoring];
-    K --> L[Final 3 Versions + Best Badge];
-```
-
-| Step | Script | Description |
-|------|--------|-------------|
-| 1 | `scripts/01_build_dataset.py` | Load Genius dataset, filter artists, clean lyrics |
-| 2 | `scripts/02_label_songs.py` | LLM-extract structure + theme for each song |
-| 3 | `scripts/03_build_index.py` | Overhauled: Fixed 4-6 line chunks, FAISS + BM25 |
-| UI | `frontend/app.py` | High-Performance Streamlit Demo UI |
+**Live at:** `http://3.239.91.199:3001`  |  **API:** `http://3.239.91.199:8000`
 
 ---
 
-## Quick Start (Demo Mode)
+## What It Does
 
-To launch the system instantly:
+1. Writes original song lyrics in the style of any real-world artist using a RAG pipeline (FAISS + BM25 retrieval → GPT-4o generation).
+2. Synthesises a vocal track from those lyrics via ElevenLabs Multilingual v2.
+3. Generates a full AI song (music + singing) via Suno AI v4.
+4. Saves every production to a persistent Project Library — browse, reload, or delete past tracks from the Library page.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14 (App Router) + Tailwind CSS |
+| **Backend** | FastAPI + Uvicorn (Python 3.11) |
+| **Lyrics AI** | OpenAI GPT-4o |
+| **Lyric Retrieval** | FAISS vector index + BM25 hybrid search |
+| **Voice Synthesis** | ElevenLabs Multilingual v2 |
+| **Music Generation** | Suno AI v4 via sunoapi.org |
+| **Music Fallback** | HuggingFace MusicGen (facebook/musicgen-small) |
+| **Deployment** | AWS EC2 (Ubuntu) + systemd |
+| **Storage** | File-based JSON (`data/projects.json`) |
+
+---
+
+## Credentials
+
+| Field | Value |
+|---|---|
+| URL | `http://3.239.91.199:3001` |
+| Email | `admin@studio.com` |
+| Password | `admins` |
+
+---
+
+## Quick Start (Local)
+
 ```bash
-streamlit run frontend/app.py
+# 1. Activate venv
+source venv/bin/activate
+
+# 2. Start the API (port 8000)
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+# 3. Start the frontend (port 3001)
+cd frontend-nextjs
+npm run dev -- --port 3001
+
+# 4. Open http://localhost:3001
 ```
-*Note: This assumed you have already built the FAISS index locally.*
-
----
-
-## Running Backend Data Steps
-
-```bash
-# Step 1 – Build dataset (~20 min, streams HuggingFace)
-python scripts/01_build_dataset.py
-
-# Step 2 – LLM labeling  (~30–60 min, costs ~$5–20 in OpenAI credits)
-python scripts/02_label_songs.py
-
-# Step 3 – Build FAISS index  (~10–20 min for embeddings)
-#           Embedding cache in data/cache/ means re-runs skip already-embedded chunks
-python scripts/03_build_index.py
-```
-
----
-
-## Optional: Billboard Data
-
-Download the Billboard Hot 100 CSV from Kaggle and place it in `data/raw/`:
-
-```
-data/raw/charts.csv   (or any file matching *billboard* or *hot*100*)
-```
-
-The pipeline will automatically merge chart rankings.
 
 ---
 
@@ -73,93 +63,126 @@ The pipeline will automatically merge chart rankings.
 
 ```
 .
-├── .env                        # API keys (do not commit)
-├── main.py                     # Orchestration entry point
-├── requirements.txt
-├── data/
-│   ├── raw/                    # Optional: Billboard CSV
-│   ├── processed/
-│   │   ├── cleaned_songs.jsonl # After step 1
-│   │   ├── labeled_songs.jsonl # After step 2
-│   │   └── chunks.jsonl        # After step 3
-│   ├── faiss_index/
-│   │   ├── lyrics.index        # FAISS binary index
-│   │   └── lyrics_meta.jsonl   # Parallel metadata
-│   └── cache/
-│       └── embeddings.pkl      # Embedding cache (skip re-embed on re-runs)
-├── logs/
-│   └── generation_logs.jsonl   # Every generation logged here
-├── evaluation/
-│   └── results.json            # Output of scripts/04_evaluate.py
-├── scripts/
-│   ├── 01_build_dataset.py
-│   ├── 02_label_songs.py
-│   ├── 03_build_index.py       # Uses embedding cache
-│   └── 04_evaluate.py          # 18-prompt test set + metrics
+├── api/
+│   └── main.py                  # FastAPI backend — all REST endpoints
 ├── rag/
-│   ├── retriever.py            # Metadata-first FAISS search + genre fallback
-│   ├── prompt_builder.py       # Structured prompt with output template
-│   ├── generator.py            # OpenAI generation (used standalone)
-│   └── pipeline.py             # LangChain end-to-end + retry + logging
+│   ├── pipeline.py              # End-to-end RAG orchestrator
+│   ├── prompt_builder.py        # GPT-4o prompt assembly + output template
+│   ├── retriever.py             # FAISS + BM25 hybrid retrieval
+│   ├── generator.py             # OpenAI generation wrapper
+│   ├── music.py                 # Suno AI + HuggingFace music generation
+│   ├── voice.py                 # ElevenLabs voice synthesis
+│   └── validator.py             # Bars enforcer + chorus validator
+├── frontend-nextjs/
+│   ├── app/
+│   │   ├── page.tsx             # Main Studio page
+│   │   ├── library/page.tsx     # Project Library
+│   │   └── login/page.tsx       # Auth
+│   ├── lib/
+│   │   ├── api.ts               # Axios client + API calls
+│   │   └── types.ts             # TypeScript types
+│   └── components/
+│       └── GenerationStatus.tsx # Real-time pipeline status panel
 ├── frontend/
-│   └── app.py                  # Streamlit UI with history + richer context
-└── utils/
-    ├── config.py               # Paths, constants, fallback settings
-    ├── logger.py               # Generation logger → logs/generation_logs.jsonl
-    └── cache.py                # EmbeddingCache (pickle-backed)
+│   └── app.py                   # Legacy Streamlit UI (kept for reference)
+├── scripts/
+│   ├── 01_build_dataset.py      # Download + clean artist lyrics from Genius
+│   ├── 02_label_songs.py        # LLM-label structure + theme per song
+│   └── 03_build_index.py        # Build FAISS + BM25 index
+├── utils/
+│   ├── genius_utils.py          # Genius API artist search
+│   └── config.py                # Paths and constants
+├── data/
+│   ├── faiss_index/             # FAISS binary index + metadata
+│   ├── projects.json            # Saved projects (created at runtime)
+│   └── processed/               # Cleaned + labeled lyric chunks
+├── docs/
+│   ├── SonicFlow_Studio_Manual.md   # Full user manual (Markdown)
+│   └── SonicFlow_Studio_Manual.pdf  # Full user manual (PDF)
+└── .env                         # API keys (never commit)
 ```
 
 ---
 
-## Demo Features (V5.1)
+## Environment Variables (`.env`)
 
-- **⚡ 1-Click Presets** – Instantly trigger polished demos (Drake, SZA).
-- **🏆 Best Version Identification** – Automated fidelity scoring picks the most authentic output.
-- **🎯 Smart Hook Extraction** – Prominent visual callout for the song's central hook.
-- **✨ Improve Hook Only** – Target specific sections for refinement without trashing context.
-- **⚡ Parallel Retrieval** – < 15s end-to-end latency via multi-query threading.
-- **⚖️ Artist Balancing** – Zero-bias blending for multi-artist collaborations.
-- **✅ Strict Chorus Validation** – Zero-tolerance enforcement of 3-line, rhythmic choruses.
-
----
-
-## Cost Estimates
-
-| Operation | Approx Cost |
-|-----------|-------------|
-| LLM labeling (~1500 songs) | $5–20 (one-time) |
-| Embeddings (~15 000 chunks) | $1–3 (one-time) |
-| Multi-Query & Reranking | ~$0.005 per run |
-| 3x Generation | ~$0.03 per run |
-| **Total Per Query** | **~$0.035** |
+```bash
+OPENAI_API_KEY=...
+ELEVENLABS_API_KEY=...
+SUNO_API_KEY=...
+GENIUS_ACCESS_TOKEN=...
+EC2_PUBLIC_IP=3.239.91.199
+```
 
 ---
 
-## Evaluation
+## EC2 Deployment
 
-After building the index, run `python scripts/04_evaluate.py` to score the system across 18 test prompts:
+Services are managed by systemd. SSH into the server then:
 
-| Metric | What it measures | Target |
-|--------|-----------------|--------|
-| `structure_accuracy` | Fraction of expected section labels in output | ≥ 0.80 |
-| `style_similarity` | Jaccard word-overlap with retrieved chunks | ≥ 0.05 |
-| `repetition_score` | Line-level chorus/hook consistency | ≥ 0.50 |
+```bash
+# Check service status
+sudo systemctl status sonicflow-api
+sudo systemctl status sonicflow-nextjs
 
-Results are saved to `evaluation/results.json`.
+# Restart services
+sudo systemctl restart sonicflow-api
+sudo systemctl restart sonicflow-nextjs
 
-## Logging
+# View live logs
+journalctl -u sonicflow-api -f
+journalctl -u sonicflow-nextjs -f
 
-Every generation (UI or evaluation) is appended to `logs/generation_logs.jsonl` with:
-- timestamp, latency
-- user inputs (artists, theme, structure)
-- retrieved chunk summaries
-- full prompt + output
-- error (if any)
+# Pull latest code and restart
+cd ~/AI-Songwriting-System
+git pull
+sudo systemctl restart sonicflow-api
+cd frontend-nextjs && npm run build
+sudo systemctl restart sonicflow-nextjs
+```
 
-## Extending the System
+---
 
-- **Add artists**: edit `TARGET_ARTISTS` in `utils/config.py`, re-run steps 1–3
-- **Use GPT-4o**: change `GENERATION_MODEL` and `LABELING_MODEL` in `utils/config.py`
-- **Swap embeddings**: change `EMBEDDING_MODEL` to any OpenAI embedding model
-- **Billboard data**: drop any Billboard CSV into `data/raw/` before step 1
-- **Adjust retrieval**: tune `TOP_K`, `FALLBACK_TOP_K`, `MIN_CHUNKS_THRESHOLD` in `utils/config.py`
+## Building the FAISS Index (one-time setup)
+
+```bash
+# Step 1 — Download and clean lyrics (~20 min)
+python scripts/01_build_dataset.py
+
+# Step 2 — LLM-label structure + theme (~30–60 min, ~$5–20 OpenAI cost)
+python scripts/02_label_songs.py
+
+# Step 3 — Build FAISS + BM25 index (~10–20 min)
+python scripts/03_build_index.py
+```
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/login` | Authenticate → returns Bearer token |
+| `POST` | `/generate` | Run full pipeline → lyrics + audio (base64) |
+| `GET` | `/artists/search?q=...` | Autocomplete artist names |
+| `GET` | `/projects` | List all saved projects (newest first) |
+| `POST` | `/projects` | Save a new project |
+| `DELETE` | `/projects/{id}` | Delete a project |
+| `GET` | `/health` | Health check |
+
+---
+
+## Documentation
+
+The full user manual is in `docs/`:
+
+- `docs/SonicFlow_Studio_Manual.md` — Markdown version
+- `docs/SonicFlow_Studio_Manual.pdf` — PDF version
+
+Covers: every UI control, how each setting works, step-by-step walkthroughs, system architecture, end-to-end flow diagram, glossary, and troubleshooting.
+
+---
+
+## Branch
+
+`feature/final-production-hardening`
