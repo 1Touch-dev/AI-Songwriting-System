@@ -206,7 +206,7 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
 
     lyrics: str = res.get("lyrics", "")
 
-    # ── Step 2: Voice synthesis ────────────────────────────────────────
+    # ── Step 2: Voice synthesis (ElevenLabs → OpenAI TTS fallback) ───────
     voice_bytes: Optional[bytes] = None
     voice_error: Optional[str]  = None
     if req.enable_voice:
@@ -217,12 +217,14 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
                 voice_bytes = None
             elif not voice_bytes:
                 vg = pipeline.voice_gen
-                if not vg.api_key:
-                    voice_error = "ELEVENLABS_API_KEY not set"
+                has_eleven = bool(vg._eleven_client)
+                has_openai = bool(vg._openai_client)
+                if not has_eleven and not has_openai:
+                    voice_error = "No voice provider configured (set ELEVENLABS_API_KEY or OPENAI_API_KEY)"
                 elif vg._import_error:
                     voice_error = f"Package error: {vg._import_error}"
                 else:
-                    voice_error = "All retries exhausted — check API key or ElevenLabs quota"
+                    voice_error = "All voice providers exhausted — check ElevenLabs quota and OpenAI key"
         except Exception as e:
             voice_error = str(e)
             print(f"[API] Voice error: {e}")
