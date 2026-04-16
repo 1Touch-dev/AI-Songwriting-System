@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Music2, Mic2, Radio, Search, ArrowLeft, Clock } from 'lucide-react'
+import { Music2, Mic2, Radio, Search, ArrowLeft, Clock, ExternalLink } from 'lucide-react'
 import { getProjects } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
@@ -30,6 +30,18 @@ export default function LibraryPage() {
     p.theme.toLowerCase().includes(search.toLowerCase())
   )
 
+  const openInStudio = (p: Project) => {
+    try {
+      localStorage.setItem('sonicflow_open_project', JSON.stringify({
+        artist: p.artist,
+        theme: p.theme,
+        lyrics: p.lyrics,
+        title: p.title,
+      }))
+    } catch { /* storage full */ }
+    router.push('/')
+  }
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -39,19 +51,19 @@ export default function LibraryPage() {
           className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass transition-all">
           <ArrowLeft size={16} />
         </Link>
-        <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center"
             style={{ background: 'linear-gradient(135deg, #8ff5ff, #d277ff)' }}>
             <Music2 size={14} color="#0e0e0e" />
           </div>
-          <h1 className="font-display font-bold text-lg text-text-primary">Project Library</h1>
+          <h1 className="font-display font-bold text-lg text-text-primary truncate">Project Library</h1>
         </div>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-3 flex-shrink-0">
           <div className="relative">
             <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-muted" />
             <input
-              className="input-field pl-9 w-56 py-2 text-sm"
-              placeholder="Search projects..."
+              className="input-field pl-9 w-48 py-2 text-sm"
+              placeholder="Search..."
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -78,6 +90,13 @@ export default function LibraryPage() {
             </div>
           ))}
         </div>
+
+        {/* Helper hint */}
+        {!loading && !error && filtered.length > 0 && (
+          <p className="text-xs text-text-muted mb-4 flex items-center gap-1.5">
+            <ExternalLink size={11} /> Click any project to open it in Studio
+          </p>
+        )}
 
         {/* Content */}
         {loading ? (
@@ -108,7 +127,7 @@ export default function LibraryPage() {
         ) : (
           <div className="grid gap-4">
             {filtered.map(p => (
-              <ProjectCard key={p.id} project={p} />
+              <ProjectCard key={p.id} project={p} onClick={() => openInStudio(p)} />
             ))}
           </div>
         )}
@@ -117,61 +136,77 @@ export default function LibraryPage() {
   )
 }
 
-function ProjectCard({ project: p }: { project: Project }) {
+function ProjectCard({ project: p, onClick }: { project: Project; onClick: () => void }) {
   return (
-    <div className="glass-panel-hover p-5 flex items-start gap-5">
+    <button
+      onClick={onClick}
+      className="glass-panel-hover p-5 flex items-start gap-5 w-full text-left group cursor-pointer overflow-hidden"
+      style={{ display: 'flex' }}
+    >
       {/* Icon */}
-      <div className="w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center"
+      <div className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-colors"
         style={{ background: 'rgba(143,245,255,0.08)' }}>
         <Music2 size={20} style={{ color: '#8ff5ff', opacity: 0.7 }} />
       </div>
 
-      {/* Meta */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="font-display font-semibold text-base text-text-primary truncate">
-              {p.title}
+      {/* Meta — min-w-0 is critical for flex truncation */}
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-start justify-between gap-3">
+          {/* Title + subtitle — own min-w-0 for inner truncation */}
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <h3 className="font-display font-semibold text-base text-text-primary truncate group-hover:text-white transition-colors">
+              {p.artist} — {p.title}
             </h3>
             <p className="text-sm text-text-muted mt-0.5 truncate">
-              {p.artist} — {p.theme}
+              {p.theme}
             </p>
           </div>
+          {/* Timestamp — never shrinks */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <Clock size={12} className="text-text-muted" />
-            <span className="text-xs text-text-muted">{p.timestamp}</span>
+            <span className="text-xs text-text-muted whitespace-nowrap">{p.timestamp}</span>
           </div>
         </div>
 
-        {/* Lyrics preview */}
-        <p className="text-xs text-text-muted mt-2 line-clamp-2 leading-relaxed">
-          {p.lyrics.slice(0, 160)}...
+        {/* Lyrics preview — break-words prevents CJK/Arabic overflow */}
+        <p className="text-xs text-text-muted mt-2 leading-relaxed overflow-hidden"
+          style={{
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+          }}>
+          {p.lyrics.replace(/\[[^\]]+\]/g, '').trim().slice(0, 200)}
         </p>
 
-        {/* Tags + Actions */}
-        <div className="flex items-center gap-3 mt-3">
-          <div className="flex gap-1.5">
-            {p.has_voice && (
-              <span className="px-2 py-0.5 rounded-md text-xs flex items-center gap-1"
-                style={{ background: 'rgba(210,119,255,0.1)', color: '#d277ff' }}>
-                <Mic2 size={10} /> Voice
-              </span>
-            )}
-            {p.has_music && (
-              <span className="px-2 py-0.5 rounded-md text-xs flex items-center gap-1"
-                style={{ background: 'rgba(195,244,0,0.1)', color: '#c3f400' }}>
-                <Music2 size={10} /> Music
-              </span>
-            )}
-            {p.duration_s > 0 && (
-              <span className="px-2 py-0.5 rounded-md text-xs text-text-muted"
-                style={{ background: 'rgba(255,255,255,0.05)' }}>
-                {Math.floor(p.duration_s / 60)}:{String(Math.floor(p.duration_s % 60)).padStart(2,'0')}
-              </span>
-            )}
-          </div>
+        {/* Tags */}
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          {p.has_voice && (
+            <span className="px-2 py-0.5 rounded-md text-xs flex items-center gap-1 flex-shrink-0"
+              style={{ background: 'rgba(210,119,255,0.1)', color: '#d277ff' }}>
+              <Mic2 size={10} /> Voice
+            </span>
+          )}
+          {p.has_music && (
+            <span className="px-2 py-0.5 rounded-md text-xs flex items-center gap-1 flex-shrink-0"
+              style={{ background: 'rgba(195,244,0,0.1)', color: '#c3f400' }}>
+              <Music2 size={10} /> Music
+            </span>
+          )}
+          {p.duration_s > 0 && (
+            <span className="px-2 py-0.5 rounded-md text-xs text-text-muted flex-shrink-0"
+              style={{ background: 'rgba(255,255,255,0.05)' }}>
+              {Math.floor(p.duration_s / 60)}:{String(Math.floor(p.duration_s % 60)).padStart(2,'0')}
+            </span>
+          )}
+          <span className="ml-auto text-xs flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ color: '#8ff5ff' }}>
+            <ExternalLink size={11} /> Open in Studio
+          </span>
         </div>
       </div>
-    </div>
+    </button>
   )
 }

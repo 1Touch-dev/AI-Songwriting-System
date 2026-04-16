@@ -110,6 +110,7 @@ export default function StudioPage() {
       return
     }
     setToken(stored)
+
     // Restore last result and history from localStorage
     try {
       const savedResult = localStorage.getItem(STUDIO_RESULT_KEY)
@@ -117,6 +118,24 @@ export default function StudioPage() {
       const savedHistory = localStorage.getItem(STUDIO_HISTORY_KEY)
       if (savedHistory) setHistory(JSON.parse(savedHistory))
     } catch { /* ignore parse errors */ }
+
+    // Check if navigated here from Library (open project)
+    try {
+      const openProject = localStorage.getItem('sonicflow_open_project')
+      if (openProject) {
+        const proj = JSON.parse(openProject)
+        localStorage.removeItem('sonicflow_open_project')
+        setArtistQuery(proj.artist || '')
+        setState(s => ({
+          ...s,
+          artist: proj.artist || '',
+          theme: proj.theme || '',
+          refLyrics: proj.lyrics || '',
+        }))
+        toast(`Opened: ${proj.title || proj.theme || 'Project'}`, { icon: '📂' })
+      }
+    } catch { /* ignore */ }
+
     setAuthChecked(true)
   }, [router])
 
@@ -667,9 +686,11 @@ export default function StudioPage() {
               </div>
             ) : (
               <div className="animate-slide-up space-y-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-display font-bold text-xl text-text-primary">Latest Project</h2>
+                <div className="flex items-center justify-between gap-3 overflow-hidden">
+                  <div className="min-w-0 overflow-hidden">
+                    <h2 className="font-display font-bold text-xl text-text-primary truncate">
+                      {result.theme || 'Latest Project'}
+                    </h2>
                     <p className="text-xs text-text-muted">{result.timestamp}</p>
                   </div>
                 </div>
@@ -830,16 +851,16 @@ export default function StudioPage() {
 
             {/* History */}
             {history.length > 1 && (
-              <div className="glass-panel p-5 space-y-3">
+              <div className="glass-panel p-5 space-y-3 overflow-hidden">
                 <h3 className="section-title">Session History ({history.length} tracks)</h3>
                 {history.slice(1, 6).map((h, i) => (
                   <button
                     key={i}
                     onClick={() => { setResult(h); setActiveTab('lyrics') }}
-                    className="w-full text-left px-4 py-3 rounded-xl text-sm text-text-secondary hover:bg-glass transition-all"
+                    className="w-full text-left px-4 py-3 rounded-xl text-sm text-text-secondary hover:bg-glass transition-all flex items-center gap-2 overflow-hidden"
                   >
-                    <span className="text-text-muted text-xs mr-2">{h.timestamp}</span>
-                    {h.theme || 'Untitled'}
+                    <span className="text-text-muted text-xs flex-shrink-0">{h.timestamp}</span>
+                    <span className="truncate">{h.theme || 'Untitled'}</span>
                   </button>
                 ))}
               </div>

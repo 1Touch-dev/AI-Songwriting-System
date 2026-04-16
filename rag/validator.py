@@ -245,16 +245,30 @@ class ChorusValidator:
             
         return f"[Chorus]\n{chorus_text}"
 
-    def enforce_bars(self, text, bars):
-        lines = [l for l in text.split("\n") if l.strip()]
+    def enforce_bars(self, text: str, bars: int) -> str:
+        """
+        Enforce exactly `bars` lyrical lines.
+        Section headers like [Verse 1], [Chorus] are preserved but NOT counted as bars.
+        Excess content lines are dropped; structure tags are always kept.
+        """
+        raw_lines = text.split("\n")
+        result: list[str] = []
+        content_count = 0
 
-        if len(lines) > bars:
-            return "\n".join(lines[:bars])
+        for raw in raw_lines:
+            stripped = raw.strip()
+            if not stripped:
+                result.append(raw)  # preserve blank separator lines
+                continue
+            is_header = bool(re.match(r'^\[.+\]', stripped))
+            if is_header:
+                result.append(raw)  # always keep section labels
+            elif content_count < bars:
+                result.append(raw)
+                content_count += 1
+            # else: drop excess content lines silently
 
-        if len(lines) < bars:
-            return "\n".join(lines + ["..."] * (bars - len(lines)))
-
-        return text
+        return "\n".join(result)
 
     def rewrite_chorus(self, chorus: str, reason: str) -> str:
         prompt = f"""

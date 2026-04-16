@@ -37,16 +37,34 @@ def _parse_structure(structure: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _build_output_template(structure: str) -> str:
+def _build_output_template(structure: str, bars: int = 16) -> str:
     """
-    Inject an explicit section-by-section template so the LLM knows
-    exactly how to label and size each section.
+    Inject an explicit section-by-section template with bar counts
+    derived from the user's selected song length.
+    Verse sections receive ~2× the lines of chorus/bridge sections.
     """
     sections = _parse_structure(structure)
-    lines: list[str] = []
-    chorus_label: str | None = None
 
+    # Assign weight per section type (chorus = 1, verse = 2, intro/outro/pre = 0.75)
+    weights: list[float] = []
     for sec in sections:
+        lower = sec.lower().replace(" ", "")
+        if any(k in lower for k in ("chorus", "hook", "refrain")):
+            weights.append(1.0)
+        elif any(k in lower for k in ("intro", "outro")):
+            weights.append(0.75)
+        elif "pre" in lower and "chorus" in lower:
+            weights.append(0.75)
+        elif "bridge" in lower:
+            weights.append(1.0)
+        else:
+            weights.append(2.0)  # verses
+
+    total_weight = sum(weights) or 1.0
+    chorus_label: str | None = None
+    lines: list[str] = []
+
+    for sec, w in zip(sections, weights):
         lower = sec.lower().replace(" ", "")
         is_chorus = any(k in lower for k in ("chorus", "hook", "refrain"))
         is_bridge = "bridge" in lower
@@ -54,22 +72,24 @@ def _build_output_template(structure: str) -> str:
         is_intro  = "intro" in lower
         is_pre    = "pre" in lower and "chorus" in lower
 
+        sec_bars = max(2, round(bars * w / total_weight))
         label = f"[{sec}]"
+
         if is_intro:
-            hint = "(2–4 lines, establish the scene or mood)"
+            hint = f"(EXACTLY {sec_bars} lines — establish the scene or mood)"
         elif is_pre:
-            hint = "(2–4 lines, build tension toward the chorus)"
+            hint = f"(EXACTLY {sec_bars} lines — build tension toward the chorus)"
         elif is_chorus and chorus_label is None:
-            hint = "(2–6 lines, emotionally resonant — will repeat verbatim)"
+            hint = f"(EXACTLY {sec_bars} lines — emotionally resonant hook, repeat verbatim each time)"
             chorus_label = sec
         elif is_chorus:
-            hint = f"(repeat [{chorus_label}] verbatim or near-verbatim)"
+            hint = f"(repeat [{chorus_label}] verbatim — {sec_bars} lines)"
         elif is_bridge:
-            hint = "(4–8 lines, shift in perspective or emotional peak)"
+            hint = f"(EXACTLY {sec_bars} lines — shift in perspective or emotional peak)"
         elif is_outro:
-            hint = "(2–4 lines, wind down or closing thought)"
+            hint = f"(EXACTLY {sec_bars} lines — wind down or closing thought)"
         else:
-            hint = "(6–10 lines, advance the story or emotion)"
+            hint = f"(EXACTLY {sec_bars} lines — advance the story or emotion)"
 
         lines.append(f"{label}\n{hint}")
 
@@ -257,10 +277,11 @@ You are given fragments from real songs. Use them EXCLUSIVELY to study voice and
 LENGTH & BAR CONTROL (STRICT RULE)
 ----------------------------------------
 
-- Generate EXACTLY {bars} lines in total across all sections.
-- Each line corresponds to exactly ONE bar.
-- DO NOT exceed the line count.
-- DO NOT add extra padding lines.
+- Generate EXACTLY {bars} TOTAL lyrical lines across the entire song.
+- Section headers like [Verse 1] or [Chorus] are NOT counted as lines/bars.
+- Every non-header line = one bar. The sum of all non-header lines MUST equal {bars}.
+- Follow the per-section line counts shown in the output template exactly.
+- DO NOT add filler lines, ellipses, or padding beyond {bars} total.
 """
 
 
@@ -312,8 +333,8 @@ Style inspiration should remain grounded in: {", ".join(artists)}.
 
     artist_str = " + ".join(artists) if len(artists) > 1 else artists[0]
 
-    # Output template
-    output_template = _build_output_template(structure)
+    # Output template (bar-aware section hints)
+    output_template = _build_output_template(structure, bars=bars)
 
     # Artist style block
     style_block = _artist_style_block(artists)
@@ -359,7 +380,7 @@ THEME: {theme}
 {lang_instruction}
 {mode_instruction}
 {perspective_instruction}
-LENGTH CONSTRAINT: Ensure each verse is exactly {bars} lines (bars) long.
+LENGTH CONSTRAINT: The TOTAL lyrical lines across ALL sections must equal exactly {bars} bars. Section headers ([Verse 1], [Chorus] etc.) are NOT counted. Adhere strictly to the per-section line counts shown in the output template.
 {f'ADDITIONAL NOTES: {extra_instructions}' if extra_instructions else ''}
 
 {f'REFERENCE LYRICS: \n{reference_lyrics}' if reference_lyrics else ''}
