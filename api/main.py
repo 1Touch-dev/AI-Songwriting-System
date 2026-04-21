@@ -533,7 +533,7 @@ async def generate(
                 instrumental_bytes,
                 ext=instrumental_ext,
                 vocal_vol=1.0,
-                inst_vol=0.8,
+                inst_vol=0.55,
             )
             if not mixed_bytes:
                 mix_error = "FFmpeg mixing failed — ffmpeg may not be installed"

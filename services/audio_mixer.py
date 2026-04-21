@@ -1,8 +1,14 @@
 """
-audio_mixer.py — Basic audio mixing via FFmpeg.
+audio_mixer.py — Vocal + instrumental mixer via FFmpeg.
 
-Mixes a vocal track (TTS MP3) with an instrumental (WAV/MP3) using
-FFmpeg's amix filter. Returns mixed bytes or None if FFmpeg unavailable.
+Strategy:
+  - Mix duration = vocal length (not instrumental length).
+    The vocal defines the song — no 2-minute instrumental tail after it ends.
+  - Instrumental trimmed to vocal duration, then a 3-second fade-out applied.
+  - Simple volume scaling (no loudnorm — avoids latency/timing issues):
+      vocal     × 1.0  (clean TTS voice at its natural level)
+      instrumental × 0.55  (~−5 dB duck so voice sits clearly on top)
+  - Output: 192 kbps MP3
 """
 from __future__ import annotations
 
@@ -18,21 +24,30 @@ def is_ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def _get_duration(path: str) -> float:
+    """Return audio duration in seconds via ffprobe, or 0.0 on failure."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
 def mix_vocal_with_instrumental(
     vocal_bytes: bytes,
     instrumental_path: str,
     vocal_vol: float = 1.0,
-    inst_vol: float = 0.85,
+    inst_vol: float = 0.55,
 ) -> Optional[bytes]:
     """
     Mix vocal (bytes) with instrumental file on disk.
 
-    Pipeline:
-      - Normalize both inputs independently (loudnorm)
-      - Vocal: +2 dB boost for presence
-      - Instrumental: -3 dB duck to let vocals sit on top
-      - amix with dropout_transition for clean fade behaviour
-      - Output: 192kbps MP3 (demo quality)
+    Output length = vocal length + 3s fade-out.
+    Both tracks play simultaneously from t=0.
     """
     if not is_ffmpeg_available():
         print("[MIXER] FFmpeg not found — mixing skipped.", flush=True)
@@ -44,17 +59,21 @@ def mix_vocal_with_instrumental(
             out_path   = os.path.join(tmp, "mixed.mp3")
             Path(vocal_path).write_bytes(vocal_bytes)
 
-            # vocal_vol=1.0 → +2 dB (1.259); inst_vol=0.85 → -3 dB (0.708)
-            v_db = vocal_vol * 1.259   # +2 dB on top of caller's multiplier
-            i_db = inst_vol  * 0.708   # -3 dB on top of caller's multiplier
+            vocal_dur = _get_duration(vocal_path)
+            if vocal_dur <= 0:
+                print("[MIXER] Could not determine vocal duration.", flush=True)
+                return None
 
+            fade_start = max(0.0, vocal_dur - 3.0)
+
+            # Both inputs volume-adjusted, then mixed simultaneously.
+            # Instrumental trimmed to vocal length before mix.
+            # 3-second fade-out applied to the final output.
             filter_complex = (
-                # Normalize vocal loudness
-                f"[0:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume={v_db:.3f}[v];"
-                # Normalize instrumental loudness, then duck it
-                f"[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume={i_db:.3f}[i];"
-                # Mix — longest duration, smooth 2s fade on dropout
-                "[v][i]amix=inputs=2:duration=longest:dropout_transition=2[out]"
+                f"[0:a]volume={vocal_vol:.3f}[v];"
+                f"[1:a]atrim=duration={vocal_dur:.3f},volume={inst_vol:.3f}[i];"
+                f"[v][i]amix=inputs=2:duration=first[mixed];"
+                f"[mixed]afade=t=out:st={fade_start:.3f}:d=3[out]"
             )
 
             cmd = [
@@ -69,12 +88,16 @@ def mix_vocal_with_instrumental(
             ]
             result = subprocess.run(cmd, capture_output=True, timeout=120)
             if result.returncode != 0:
-                err = result.stderr[-400:].decode(errors='replace')
+                err = result.stderr[-600:].decode(errors='replace')
                 print(f"[MIXER] FFmpeg failed: {err}", flush=True)
                 return None
 
             mixed = Path(out_path).read_bytes()
-            print(f"[MIXER] Mix complete: {len(mixed):,} bytes", flush=True)
+            print(
+                f"[MIXER] Mix complete: {len(mixed):,} bytes, "
+                f"vocal={vocal_dur:.1f}s fade@{fade_start:.1f}s",
+                flush=True,
+            )
             return mixed
 
     except subprocess.TimeoutExpired:
@@ -90,18 +113,16 @@ def mix_vocal_with_instrumental_bytes(
     instrumental_bytes: bytes,
     ext: str = ".wav",
     vocal_vol: float = 1.0,
-    inst_vol: float = 0.85,
+    inst_vol: float = 0.55,
 ) -> Optional[bytes]:
-    """
-    Mix both vocal and instrumental from bytes (no pre-existing file needed).
-    """
+    """Mix both inputs from bytes (no pre-existing file needed)."""
     if not is_ffmpeg_available():
         print("[MIXER] FFmpeg not found — mixing skipped.", flush=True)
         return None
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            inst_path  = os.path.join(tmp, f"inst{ext}")
+            inst_path = os.path.join(tmp, f"inst{ext}")
             Path(inst_path).write_bytes(instrumental_bytes)
             return mix_vocal_with_instrumental(vocal_bytes, inst_path, vocal_vol, inst_vol)
     except Exception as e:
