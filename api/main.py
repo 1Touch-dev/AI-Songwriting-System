@@ -28,6 +28,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -65,7 +66,6 @@ from services.audio_mixer import mix_vocal_with_instrumental_bytes, is_ffmpeg_av
 app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
 
 app.mount("/static/stems", StaticFiles(directory=str(STEMS_DIR)), name="stems")
-app.mount("/audio", StaticFiles(directory=str(AUDIO_DIR)), name="audio")
 
 app.add_middleware(
     CORSMiddleware,
@@ -270,6 +270,16 @@ def _analyze_instrumental(file_bytes: bytes, filename: str) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "5.0.0", "ffmpeg": is_ffmpeg_available()}
+
+
+@app.get("/audio/{filename}")
+def serve_audio(filename: str):
+    """Serve saved project audio files with proper CORS headers."""
+    safe = Path(filename).name  # prevent path traversal
+    path = AUDIO_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    return FileResponse(path, media_type="audio/mpeg", filename=safe)
 
 
 @app.post("/login", response_model=LoginResponse)
