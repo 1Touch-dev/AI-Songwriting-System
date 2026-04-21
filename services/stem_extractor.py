@@ -5,6 +5,8 @@ Model : htdemucs  (drums / bass / other / vocals)
 Mode  : background-threaded job with polling
 Output: WAV files on disk, served as static files via FastAPI
 
+Uses subprocess `python -m demucs` for compatibility across demucs versions.
+
 Job lifecycle:
   processing → done | failed
 
@@ -17,12 +19,13 @@ Accessible via FastAPI StaticFiles at:
 from __future__ import annotations
 
 import os
+import sys
+import subprocess
 import time
 import uuid
 import threading
 import traceback
 from pathlib import Path
-from typing import Optional
 
 ROOT_DIR  = Path(__file__).resolve().parent.parent
 STEMS_DIR = ROOT_DIR / "data" / "stems"
@@ -32,7 +35,6 @@ STEMS_DIR.mkdir(parents=True, exist_ok=True)
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
-STEM_NAMES = ["vocals", "drums", "bass", "other"]
 DEFAULT_MODEL = "htdemucs"
 
 
@@ -91,37 +93,49 @@ def cleanup_old_jobs(max_age_seconds: int = 3600):
 def _run_extraction(job_id: str, file_path: str, job_dir: str):
     try:
         _update_job(job_id, status="processing")
-        print(f"[STEMS] Job {job_id}: loading Demucs ({DEFAULT_MODEL})...", flush=True)
+        print(f"[STEMS] Job {job_id}: running demucs on {file_path}...", flush=True)
 
-        from demucs.api import Separator
-        separator = Separator(DEFAULT_MODEL)
+        # Use subprocess to call demucs CLI — works across all demucs versions
+        # demucs outputs to: <output_dir>/<model_name>/<track_name>/{stem}.wav
+        python_bin = sys.executable
+        cmd = [
+            python_bin, "-m", "demucs",
+            "--name", DEFAULT_MODEL,
+            "--out", job_dir,
+            "--mp3",           # accept mp3 input
+            file_path,
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
 
-        print(f"[STEMS] Job {job_id}: separating {file_path}...", flush=True)
-        origin, separated = separator.separate_audio_file(file_path)
+        if result.returncode != 0:
+            raise RuntimeError(f"demucs exited {result.returncode}: {result.stderr[-500:]}")
+
+        # Demucs writes to: {job_dir}/{model}/{basename_no_ext}/{stem}.wav
+        audio_name = Path(file_path).stem
+        stem_dir = Path(job_dir) / DEFAULT_MODEL / audio_name
+        if not stem_dir.exists():
+            # Try without model subfolder (some versions)
+            stem_dir = Path(job_dir) / audio_name
 
         stems: dict[str, str] = {}
-        sr = separator.samplerate
+        for wav in stem_dir.glob("*.wav"):
+            stem_name = wav.stem  # vocals, drums, bass, other
+            stems[stem_name] = str(wav)
+            print(f"[STEMS] Job {job_id}: found {stem_name}.wav", flush=True)
 
-        try:
-            import torchaudio
-            for stem_name, tensor in separated.items():
-                out_path = str(Path(job_dir) / f"{stem_name}.wav")
-                torchaudio.save(out_path, tensor.cpu(), sr)
-                stems[stem_name] = out_path
-                print(f"[STEMS] Job {job_id}: saved {stem_name}.wav", flush=True)
-        except ImportError:
-            # Fallback: use demucs save_audio if torchaudio unavailable
-            from demucs.audio import save_audio
-            for stem_name, tensor in separated.items():
-                out_path = str(Path(job_dir) / f"{stem_name}.wav")
-                save_audio(tensor, out_path, sr)
-                stems[stem_name] = out_path
+        if not stems:
+            raise RuntimeError(f"No stem WAVs found under {stem_dir}")
 
         _update_job(job_id, status="done", stems=stems, completed=time.time())
         print(f"[STEMS] Job {job_id}: done. Stems: {list(stems.keys())}", flush=True)
 
-    except ImportError as e:
-        err = f"Demucs not installed: {e}. Run: pip install demucs"
+    except subprocess.TimeoutExpired:
+        err = "Demucs timed out after 10 minutes"
         print(f"[STEMS] Job {job_id}: {err}", flush=True)
         _update_job(job_id, status="failed", error=err)
 
