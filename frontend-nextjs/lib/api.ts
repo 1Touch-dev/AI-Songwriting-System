@@ -1,11 +1,11 @@
 import axios from 'axios'
-import type { GenerateParams, GenerateResult } from './types'
+import type { GenerateParams, GenerateResult, GlobalArtists } from './types'
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const client = axios.create({
   baseURL: BASE_URL,
-  timeout: 600_000,  // 10 min — Suno webhook can take up to 5 min
+  timeout: 600_000,
 })
 
 export async function login(email: string, password: string): Promise<{ token: string }> {
@@ -13,12 +13,22 @@ export async function login(email: string, password: string): Promise<{ token: s
   return res.data
 }
 
+/**
+ * Generate lyrics + audio. Sends multipart/form-data so an optional
+ * instrumental file can be included alongside the JSON params.
+ */
 export async function generateSong(
   params: GenerateParams,
   token: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  instrumentalFile?: File | null,
 ): Promise<GenerateResult> {
-  const res = await client.post('/generate', params, {
+  const form = new FormData()
+  form.append('payload', JSON.stringify(params))
+  if (instrumentalFile) {
+    form.append('instrumental', instrumentalFile, instrumentalFile.name)
+  }
+  const res = await client.post('/generate', form, {
     headers: { Authorization: `Bearer ${token}` },
     signal,
   })
@@ -28,6 +38,14 @@ export async function generateSong(
 export async function searchArtists(query: string): Promise<string[]> {
   const res = await client.get('/artists/search', { params: { q: query } })
   return res.data.results ?? []
+}
+
+export async function getGlobalArtists(language?: string): Promise<GlobalArtists> {
+  const res = await client.get('/global-artists', {
+    params: language ? { language } : {},
+    timeout: 5_000,
+  })
+  return res.data.artists ?? {}
 }
 
 export async function getProjects(token: string): Promise<import('./types').Project[]> {
@@ -115,14 +133,4 @@ export async function getStemStatus(
     timeout: 10_000,
   })
   return res.data
-}
-
-export async function getGlobalArtists(
-  language?: string
-): Promise<Record<string, Record<string, string[]>>> {
-  const res = await client.get('/global-artists', {
-    params: language ? { language } : {},
-    timeout: 5_000,
-  })
-  return res.data.artists ?? {}
 }

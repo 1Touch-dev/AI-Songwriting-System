@@ -15,12 +15,15 @@ export interface GenerateParams {
   enable_music: boolean
   remix_mode: boolean
   locked_chorus: string
+  section_mode: string         // 'Full Song' | 'Verse Only'
+  chorus_strict: boolean       // natural vs strict 3-line hook
+  producer_mode: boolean       // producer mode toggle
 }
 
 export interface StemJob {
   job_id: string
   status: 'processing' | 'done' | 'failed' | 'not_found'
-  stems: Record<string, string>   // stem name → URL
+  stems: Record<string, string>
   error: string | null
   elapsed_s: number
 }
@@ -38,12 +41,14 @@ export interface GenerateResult {
   latency_ms: number
   retrieval_diagnostics: Record<string, unknown>
   analysis: Record<string, unknown> | null
-  voice_audio_b64: string | null   // base64-encoded MP3
+  voice_audio_b64: string | null
   music_audio_b64: string | null
   mixed_audio_b64: string | null
   voice_error: string | null
   music_error: string | null
+  mix_error: string | null
   locked_chorus: string | null
+  instrumental_hint: string | null
   timestamp: string
 }
 
@@ -61,6 +66,7 @@ export interface Project {
 
 export type GenMode = 'Generate New' | 'Continue Story' | 'Remix Style'
 export type PerspectiveMode = 'Same POV' | 'Opposite Empathy' | 'Response Verse'
+export type SectionMode = 'Full Song' | 'Verse Only'
 export type Language =
   | 'English' | 'Spanish' | 'French' | 'German'
   | 'Hindi' | 'Arabic' | 'Portuguese' | 'Japanese'
@@ -81,4 +87,10 @@ export interface StudioState {
   styleStrength: number
   enableVoice: boolean
   enableMusic: boolean
+  sectionMode: SectionMode
+  chorusStrict: boolean
+  producerMode: boolean
 }
+
+// Global artist data from /global-artists
+export type GlobalArtists = Record<string, Record<string, string[]>>

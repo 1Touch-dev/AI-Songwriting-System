@@ -167,12 +167,15 @@ Respond ONLY with valid JSON:
         temperature: float = GENERATION_TEMPERATURE,
         extra_instructions: str = "",
         style_strength: float = STYLE_STRENGTH_DEFAULT,
-        mode: str = "Full Song", # Generation section mode (Verse, Chorus, Full)
-        gen_mode: str = "generate", # Product mode (generate, continue, remix)
-        perspective_mode: str = "same", # POV mode (same, opposite, response)
+        mode: str = "Full Song",
+        gen_mode: str = "generate",
+        perspective_mode: str = "same",
         analysis_mode: bool = False,
         remix_mode: bool = False,
         locked_chorus: str = "",
+        chorus_strict: bool = False,
+        producer_mode: bool = False,
+        instrumental_hint: str = "",
     ) -> dict:
         """
         Run the full pipeline and return a result dict.
@@ -208,6 +211,9 @@ Respond ONLY with valid JSON:
             "analysis_mode": analysis_mode,
             "remix_mode": remix_mode,
             "locked_chorus": locked_chorus,
+            "chorus_strict": chorus_strict,
+            "producer_mode": producer_mode,
+            "instrumental_hint": instrumental_hint,
         }
 
         # In remix mode, override gen_mode so prompt builder handles it correctly
@@ -298,16 +304,41 @@ Respond ONLY with valid JSON:
             analysis_mode=analysis_mode,
             remix_mode=remix_mode,
             locked_chorus=locked_chorus,
+            chorus_strict=chorus_strict,
+            producer_mode=producer_mode,
+            instrumental_hint=instrumental_hint,
         )
 
         if analysis_mode:
+            # Run REAL LLM analysis using the prompt built above
+            try:
+                resp = self._client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.3,
+                    max_tokens=600,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                )
+                import json as _json
+                analysis_data = _json.loads(resp.choices[0].message.content.strip())
+            except Exception as e:
+                print(f"[PIPELINE] Analysis LLM error: {e}", flush=True)
+                analysis_data = {
+                    "theme": "Analysis unavailable",
+                    "tone": "Unknown",
+                    "narrative_perspective": "Unknown",
+                    "rhyme_scheme": "Unknown",
+                    "avg_syllables_per_line": 0,
+                    "ideas": [],
+                    "opposite_perspective": "",
+                    "continuation": "",
+                }
             return {
-                "analysis": {
-                    "theme": "Extracted themes and motifs from lyrical content.",
-                    "tone": "Vibe and emotional atmosphere based on generation.",
-                    "ideas": ["Lyrical progression concept", "Melodic phrasing idea", "Production style suggestion"]
-                },
-                "latency_ms": int((time.time() - t_start) * 1000)
+                "analysis": analysis_data,
+                "latency_ms": int((time.time() - t_start) * 1000),
             }
 
         # ── Step 4: Multi-variant Generation ──────────────────────────────

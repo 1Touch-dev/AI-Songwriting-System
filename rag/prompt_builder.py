@@ -223,75 +223,100 @@ def _detect_chorus_pattern(chunks: list[dict]) -> str:
 # ── System prompt ─────────────────────────────────────────────────────────
 
 _SYSTEM_BASE = """\
-You are an ELITE songwriter and stylistic chameleon. 
+You are an ELITE songwriter and stylistic chameleon.
 Prompt version: {prompt_version}
 
-Your mission is to generate ORIGINAL lyrics that are indistinguishable from the specified artist's actual work. You must avoid generic "AI-sounding" patterns and deliver high-density, grounded, and emotionally specific writing.
+Your mission: generate ORIGINAL lyrics indistinguishable from the specified artist's work.
+Avoid all generic "AI-sounding" patterns. Deliver high-density, grounded, emotionally specific writing.
 
 ----------------------------------------
 STYLE DEPTH (CRITICAL)
 ----------------------------------------
 
-You MUST go beyond surface imitation. Mimic the artist's:
-- Specific vocabulary and slang
+Go beyond surface imitation. Capture:
+- The artist's specific vocabulary and slang
 - Rhythm, cadence, and line-length variance
-- Typical contradictions (e.g., Drake's "successful but lonely", SZA's "raw but poetic")
+- Typical emotional contradictions unique to the artist
 - Punctuation habits or intentional fragmentation
 
 {style_instruction}
 
 ----------------------------------------
-CHORUS ENGINE (STRICT REINFORCEMENT)
+CHORUS ENGINE ({chorus_mode} MODE)
 ----------------------------------------
 
-The chorus MUST follow these "Repeatable Rhythm" rules:
-1. Hook Reinforcement: Use a central hook phrase. It MUST appear in Line 1 and Line 2 EXACTLY.
-2. 3-Line Absolute: The chorus MUST be exactly 3 lines.
-3. Word Density: Each line MUST contain exactly 4 to 5 words.
-4. VARIETY RULE: Line 3 MUST be conceptually and lyrically different from Line 1. DO NOT repeat the hook in Line 3. Use Line 3 to resolve the thought or add a twist.
-
-Correct Example:
-[Chorus]
-White Ferrari, 3AM
-White Ferrari, 3AM
-Stayed until the end
+{chorus_rules}
 
 ----------------------------------------
 ANTI-GENERIC RULES (MANDATORY)
 ----------------------------------------
 
-STRICTLY FORBIDDEN:
-- "I still rise," "now I glow," "stronger than before."
-- Any generic "broken heart" or "tears like rain" clichés.
-- Overly motivational or vague poetic filler.
+STRICTLY FORBIDDEN in ANY language:
+- "I still rise," "now I glow," "stronger than before," "tears like rain"
+- Vague motivational filler that has no sensory or narrative specificity
+- Direct translation of clichés from English into other languages
 
-Every line must be GROUNDED in Conversational Realism.
+Every line must be GROUNDED in Conversational Realism and specific to the theme.
 
 ----------------------------------------
 RETRIEVAL USAGE
 ----------------------------------------
 
-You are given fragments from real songs. Use them EXCLUSIVELY to study voice and texture. DO NOT COPY text.
+Retrieved fragments below are STYLE EXAMPLES only. Study voice and texture.
+DO NOT copy any actual lines.
 
 ----------------------------------------
-LENGTH & BAR CONTROL (STRICT RULE)
+LENGTH & BAR CONTROL (STRICT)
 ----------------------------------------
 
 - Generate EXACTLY {bars} TOTAL lyrical lines across the entire song.
 - Section headers like [Verse 1] or [Chorus] are NOT counted as lines/bars.
-- Every non-header line = one bar. The sum of all non-header lines MUST equal {bars}.
+- Every non-header line = one bar. Sum of all non-header lines MUST equal {bars}.
 - Follow the per-section line counts shown in the output template exactly.
-- DO NOT add filler lines, ellipses, or padding beyond {bars} total.
 
 ----------------------------------------
-LYRIC ALIGNMENT & CADENCE (CRITICAL)
+LYRIC ALIGNMENT & CADENCE
 ----------------------------------------
 
-- Keep lines SHORT: 5 to 8 words maximum per lyrical line.
-- Maintain rhythmic consistency — lines within a section should share similar syllable counts.
-- Cadence anchoring: end each verse with a phrase that sonically leads into the chorus.
-- Avoid run-on lines or overly complex sentence structures — lyrics must be singable.
+- Lines should be SHORT and singable: 5 to 9 words per lyrical line.
+- Maintain rhythmic consistency within each section.
+- Cadence anchoring: end each verse with a phrase that leads into the chorus.
+
+{producer_mode_block}
 """
+
+_CHORUS_RULES_NATURAL = """\
+NATURAL MODE (artist-style chorus):
+- Mirror the length and density of the artist's real choruses.
+- The first and last line of the chorus should share sonic resonance (not identical).
+- The chorus must be repeatable and emotionally memorable.
+- DO NOT restrict to 3 lines — match the artist's natural chorus length.
+- Final line must resolve or twist the central hook idea."""
+
+_CHORUS_RULES_STRICT = """\
+STRICT HOOK MODE:
+1. Hook Reinforcement: Use a central hook phrase. It MUST appear in Line 1 and Line 2 EXACTLY.
+2. The chorus MUST be exactly 3 lines.
+3. Each line MUST contain exactly 4 to 6 words.
+4. VARIETY RULE: Line 3 MUST be conceptually different from Line 1. It resolves or twists the hook.
+
+Example:
+[Chorus]
+White Ferrari, 3AM
+White Ferrari, 3AM
+Stayed until the end"""
+
+_PRODUCER_MODE_BLOCK = """\
+----------------------------------------
+PRODUCER MODE (ACTIVE)
+----------------------------------------
+
+You are writing for a REAL MUSIC PRODUCTION. Prioritize:
+- STRUCTURE COHERENCE: each section must flow naturally into the next.
+- RHYME ALIGNMENT: end-rhymes must be consistent within sections.
+- TEMPO MATCHING: line syllable counts must stay consistent within sections (±2 syllables).
+- SINGABILITY: every line must be speakable in one breath at natural tempo.
+Reduce abstract poetry. Prefer grounded, speakable, emotionally direct writing."""
 
 
 def build_prompt(
@@ -303,128 +328,181 @@ def build_prompt(
     gender: str = "Neutral",
     bars: int = 16,
     reference_lyrics: str = "",
-    mode: str = "generate", # generate, continue, remix
-    perspective_mode: str = "same", # same, opposite, response
+    mode: str = "generate",          # generate | continue | remix
+    perspective_mode: str = "same",  # same | opposite | response
     extra_instructions: str = "",
     style_strength: float = 0.7,
     retrieval_quality: float = 0.5,
     analysis_mode: bool = False,
     remix_mode: bool = False,
     locked_chorus: str = "",
+    chorus_strict: bool = False,     # False = natural artist style, True = 3-line strict
+    producer_mode: bool = False,     # True = structure/rhyme/tempo emphasis
+    instrumental_hint: str = "",     # vibe hint from uploaded instrumental
 ) -> tuple[str, str]:
     """
-    Build (system_prompt, user_prompt) for V3 Product Layer.
+    Build (system_prompt, user_prompt) for V4 Product Layer.
     """
     tier = _style_tier(style_strength)
     style_instruction = _STYLE_TIER_INSTRUCTIONS[tier]
 
+    # ── Analysis mode ─────────────────────────────────────────────────────
     if analysis_mode:
-        system_prompt = f"""You are an ELITE Lyrical Analyst. 
-Your task is to analyze the provided lyrics and provide a deep stylistic and thematic breakdown.
-
-OUTPUT FORMAT (STRICT JSON):
-{{
-  "theme": "Core theme description",
-  "tone": "Emotional tone description",
-  "ideas": ["New verse concept 1", "New verse concept 2", "New verse concept 3"],
-  "opposite_perspective": "A brief on the opposite perspective",
-  "continuation": "How the story should continue"
-}}
-
-Style inspiration should remain grounded in: {", ".join(artists)}.
-"""
-        user_prompt = f"Analyze the following lyrics:\n\n{reference_lyrics}"
+        system_prompt = (
+            "You are an ELITE music producer and lyrical analyst.\n"
+            "Analyze the provided lyrics deeply — as a producer preparing a remix session.\n\n"
+            "OUTPUT FORMAT (STRICT JSON — no markdown, no preamble):\n"
+            "{\n"
+            '  "theme": "Core theme in 1 sentence",\n'
+            '  "tone": "Emotional tone and energy level",\n'
+            '  "narrative_perspective": "First/second/third person + POV description",\n'
+            '  "rhyme_scheme": "ABAB / AABB / free / etc.",\n'
+            '  "avg_syllables_per_line": <number>,\n'
+            '  "ideas": [\n'
+            '    "New verse concept 1 — specific and grounded",\n'
+            '    "New verse concept 2 — different emotional angle",\n'
+            '    "New verse concept 3 — production direction"\n'
+            '  ],\n'
+            '  "opposite_perspective": "A 1-sentence summary of the opposite POV",\n'
+            '  "continuation": "How the story could naturally continue in the next verse"\n'
+            "}\n\n"
+            f"Artist context: {', '.join(artists)}."
+        )
+        user_prompt = f"Analyze the following lyrics for a remix/production session:\n\n{reference_lyrics}"
         return system_prompt, user_prompt
+
+    # ── Chorus mode selection ─────────────────────────────────────────────
+    chorus_mode   = "STRICT HOOK" if chorus_strict else "NATURAL"
+    chorus_rules  = _CHORUS_RULES_STRICT if chorus_strict else _CHORUS_RULES_NATURAL
+    producer_block = _PRODUCER_MODE_BLOCK if producer_mode else ""
 
     system_prompt = _SYSTEM_BASE.format(
         prompt_version=PROMPT_VERSION,
         style_instruction=style_instruction,
         bars=bars,
+        chorus_mode=chorus_mode,
+        chorus_rules=chorus_rules,
+        producer_mode_block=producer_block,
     )
 
     artist_str = " + ".join(artists) if len(artists) > 1 else artists[0]
 
-    # Output template (bar-aware section hints)
     output_template = _build_output_template(structure, bars=bars)
+    style_block     = _artist_style_block(artists)
+    rq_note         = _retrieval_guidance(retrieval_quality, len(retrieved_chunks))
+    chorus_hint     = _detect_chorus_pattern(retrieved_chunks)
 
-    # Artist style block
-    style_block = _artist_style_block(artists)
-
-    # Retrieval quality guidance
-    rq_note = _retrieval_guidance(retrieval_quality, len(retrieved_chunks))
-
-    # Chorus pattern hint
-    chorus_hint = _detect_chorus_pattern(retrieved_chunks)
-
-    # Context block
     context_lines: list[str] = []
-    seen = set()
+    seen: set[str] = set()
     for chunk in retrieved_chunks:
         key = f"{chunk['artist']}|||{chunk['song']}"
-        if key in seen: continue
+        if key in seen:
+            continue
         seen.add(key)
         context_lines.append(f"[{chunk['artist']} / {chunk['song']}]\n{chunk['text']}")
-
     context_block = "\n\n---\n\n".join(context_lines) if context_lines else "(no examples retrieved)"
 
-    # --- Mode-specific Logic ---
+    # ── Mode instruction ──────────────────────────────────────────────────
     mode_instruction = ""
     if mode == "continue":
-        mode_instruction = "CONTINUATION MODE: Extend the story/narrative from the provided [REFERENCE LYRICS] seamlessly. Maintain the exact same tone and flow."
+        mode_instruction = (
+            "CONTINUATION MODE: Extend the story/narrative from the provided "
+            "[REFERENCE LYRICS] seamlessly. Maintain the exact same tone, flow, and rhyme scheme."
+        )
     elif mode == "remix" and remix_mode and locked_chorus:
-        mode_instruction = f"""REMIX MODE — CHORUS LOCKED:
-The following chorus is LOCKED. You MUST copy it VERBATIM every time [Chorus] appears in the structure.
-DO NOT alter, paraphrase, or improve it in any way.
-
-=== LOCKED CHORUS (copy exactly) ===
-{locked_chorus}
-=== END LOCKED CHORUS ===
-
-Your task: write ONLY the Verse 1, Verse 2, and Bridge sections.
-Rules for your generated sections:
-- Match the theme, tone, and emotional direction of the locked chorus
-- Use a rhyme scheme compatible with the chorus ending sounds
-- Keep line length consistent with the chorus (short, punchy lines)
-- Avoid generic phrasing — be specific and grounded
-"""
+        mode_instruction = (
+            "REMIX MODE — CHORUS LOCKED:\n"
+            "The following chorus is LOCKED. You MUST copy it VERBATIM every time "
+            "[Chorus] appears in the structure.\n"
+            "DO NOT alter, paraphrase, shorten, or improve it under any condition.\n\n"
+            "=== LOCKED CHORUS (copy exactly) ===\n"
+            f"{locked_chorus}\n"
+            "=== END LOCKED CHORUS ===\n\n"
+            "Your task: write ONLY the Verse 1, Verse 2, and Bridge sections.\n"
+            "Rules:\n"
+            "- Match the theme, tone, and emotional direction of the locked chorus\n"
+            "- Use a rhyme scheme compatible with the chorus ending sounds\n"
+            "- Keep line length consistent with the chorus style\n"
+            "- Be specific and grounded — no generic filler"
+        )
     elif mode == "remix":
-        mode_instruction = "REMIX MODE: Rewrite the ideas in [REFERENCE LYRICS] with the same core theme but using entirely different wording, metaphors, and stylistic variations. A new 'take' on the old song."
+        mode_instruction = (
+            "REMIX MODE: Rewrite the ideas in [REFERENCE LYRICS] with the same core theme "
+            "but using entirely different wording, metaphors, and stylistic variations."
+        )
 
-    # --- Perspective logic ---
-    perspective_instruction = ""
+    # ── Perspective ───────────────────────────────────────────────────────
     if perspective_mode == "opposite":
-        perspective_instruction = "PERSPECTIVE: Write from the OPPOSITE emotional perspective of the theme/reference. If the theme is regret, write from a place of defiance or indifference."
+        perspective_instruction = (
+            "PERSPECTIVE: Write from the OPPOSITE emotional perspective. "
+            "If the theme implies regret, write from defiance or indifference."
+        )
     elif perspective_mode == "response":
-        perspective_instruction = "PERSPECTIVE: Write this as a RESPONSE to another character. Imagine the reference lyrics were a message sent to you, and you are replying in the artist's style."
+        perspective_instruction = (
+            "PERSPECTIVE: Write this as a RESPONSE to another character. "
+            "The reference lyrics were a message — you are replying in the artist's style."
+        )
     else:
-        perspective_instruction = f"PERSPECTIVE: Write from a {gender} perspective, maintaining the primary point of view of the artist."
+        perspective_instruction = (
+            f"PERSPECTIVE: Write from a {gender} perspective, "
+            "maintaining the artist's natural point of view."
+        )
 
-    # --- Language Enforcement ---
-    lang_instruction = f"LANGUAGE: You MUST write ONLY in {language}. Do not mix languages unless explicitly part of the artist's style (like Spanglish for Bad Bunny). Enforce linguistic purity for {language}."
+    # ── Language enforcement ──────────────────────────────────────────────
+    if language.lower() == "english":
+        lang_instruction = "LANGUAGE: Write in English."
+    else:
+        lang_instruction = (
+            f"LANGUAGE (CRITICAL): You MUST write ENTIRELY in {language}. "
+            f"Every lyrical line, section content, and expression must be native {language}. "
+            f"Do NOT write in English. Do NOT translate English clichés. "
+            f"Think and write as a native {language}-speaking artist in the target genre. "
+            f"Use idioms, slang, and cultural references natural to {language}-speaking audiences."
+        )
 
-    user_prompt = f"""STYLE: {artist_str}
-THEME: {theme}
-{lang_instruction}
-{mode_instruction}
-{perspective_instruction}
-LENGTH CONSTRAINT: The TOTAL lyrical lines across ALL sections must equal exactly {bars} bars. Section headers ([Verse 1], [Chorus] etc.) are NOT counted. Adhere strictly to the per-section line counts shown in the output template.
-{f'ADDITIONAL NOTES: {extra_instructions}' if extra_instructions else ''}
+    # ── Instrumental hint ─────────────────────────────────────────────────
+    inst_block = ""
+    if instrumental_hint:
+        inst_block = (
+            f"\nINSTRUMENTAL CONTEXT:\n"
+            f"The user has uploaded an instrumental track described as: {instrumental_hint}\n"
+            f"Write lyrics that match this vibe, energy, and emotional texture. "
+            f"The lyrics must feel like they were written FOR this specific track.\n"
+        )
 
-{f'REFERENCE LYRICS: \n{reference_lyrics}' if reference_lyrics else ''}
+    # ── Non-English artist style note ────────────────────────────────────
+    non_english_style_note = ""
+    if language.lower() != "english":
+        non_english_style_note = (
+            f"\nARTIST STYLE IN {language.upper()}: "
+            f"If {artist_str} primarily performs in {language}, apply their authentic stylistic voice. "
+            f"If they primarily perform in English, capture their thematic essence "
+            f"(emotional depth, flow, vocabulary density) as a {language}-speaking artist in the same genre.\n"
+        )
 
-{style_block}
-{rq_note}
-{chorus_hint}
-
-=== REQUIRED OUTPUT FORMAT ===
-{output_template}
-
-=== RETRIEVED STYLE EXAMPLES ===
-{context_block}
-
-=== TASK ===
-Write the lyrics following the format and style constraints above.
-Ensure everything is fully localized into {language}.
-"""
+    user_prompt = (
+        f"STYLE: {artist_str}\n"
+        f"THEME: {theme}\n"
+        f"{lang_instruction}\n"
+        f"{non_english_style_note}"
+        f"{inst_block}"
+        f"{mode_instruction}\n"
+        f"{perspective_instruction}\n"
+        f"LENGTH CONSTRAINT: TOTAL lyrical lines = exactly {bars}. "
+        f"Section headers are NOT counted. Follow per-section counts in the output template.\n"
+        f"{(f'ADDITIONAL NOTES: {extra_instructions}') if extra_instructions else ''}\n\n"
+        f"{(f'REFERENCE LYRICS:\\n{reference_lyrics}') if reference_lyrics else ''}\n\n"
+        f"{style_block}\n"
+        f"{rq_note}\n"
+        f"{chorus_hint}\n\n"
+        f"=== REQUIRED OUTPUT FORMAT ===\n"
+        f"{output_template}\n\n"
+        f"=== RETRIEVED STYLE EXAMPLES ===\n"
+        f"{context_block}\n\n"
+        f"=== TASK ===\n"
+        f"Write the complete lyrics following ALL constraints above.\n"
+        f"Every word must feel like it belongs in the selected artist's catalogue.\n"
+        f"Fully localize into {language}.\n"
+    )
 
     return system_prompt, user_prompt

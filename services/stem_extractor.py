@@ -5,75 +5,52 @@ Model : htdemucs  (drums / bass / other / vocals)
 Mode  : background-threaded job with polling
 Output: WAV files on disk, served as static files via FastAPI
 
-Job lifecycle:
-  processing → done | failed
-
-Stems are stored at:
-  data/stems/{job_id}/{stem_name}.wav
-
-Accessible via FastAPI StaticFiles at:
-  /static/stems/{job_id}/{stem_name}.wav
+Uses subprocess `python -m demucs` for compatibility across demucs versions.
 """
 from __future__ import annotations
 
-import os
+import sys
+import subprocess
 import time
 import uuid
 import threading
 import traceback
 from pathlib import Path
-from typing import Optional
 
 ROOT_DIR  = Path(__file__).resolve().parent.parent
 STEMS_DIR = ROOT_DIR / "data" / "stems"
 STEMS_DIR.mkdir(parents=True, exist_ok=True)
 
-# In-memory job registry (suitable for single-process deployments)
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
-STEM_NAMES = ["vocals", "drums", "bass", "other"]
 DEFAULT_MODEL = "htdemucs"
 
 
-# ── Public API ────────────────────────────────────────────────────────────
-
 def extract_stems_async(file_path: str) -> str:
-    """
-    Start background stem extraction.
-    Returns job_id immediately; poll get_job(job_id) for status.
-    """
-    job_id = uuid.uuid4().hex[:12]
+    job_id  = uuid.uuid4().hex[:12]
     job_dir = STEMS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
-
     with _jobs_lock:
         _jobs[job_id] = {
-            "status": "processing",
-            "started": time.time(),
+            "status":    "processing",
+            "started":   time.time(),
             "file_path": file_path,
-            "job_dir": str(job_dir),
-            "stems": {},
-            "error": None,
+            "job_dir":   str(job_dir),
+            "stems":     {},
+            "error":     None,
         }
-
-    t = threading.Thread(
-        target=_run_extraction,
-        args=(job_id, file_path, str(job_dir)),
-        daemon=True,
-    )
+    t = threading.Thread(target=_run_extraction, args=(job_id, file_path, str(job_dir)), daemon=True)
     t.start()
     return job_id
 
 
 def get_job(job_id: str) -> dict:
-    """Return job status dict (or {"status": "not_found"})."""
     with _jobs_lock:
         return dict(_jobs.get(job_id, {"status": "not_found"}))
 
 
-def cleanup_old_jobs(max_age_seconds: int = 3600):
-    """Remove jobs older than max_age_seconds from memory and disk."""
+def cleanup_old_jobs(max_age_seconds: int = 3600) -> int:
     cutoff = time.time() - max_age_seconds
     with _jobs_lock:
         stale = [jid for jid, j in _jobs.items() if j.get("started", 0) < cutoff]
@@ -86,48 +63,40 @@ def cleanup_old_jobs(max_age_seconds: int = 3600):
     return len(stale)
 
 
-# ── Background worker ─────────────────────────────────────────────────────
-
 def _run_extraction(job_id: str, file_path: str, job_dir: str):
     try:
-        _update_job(job_id, status="processing")
-        print(f"[STEMS] Job {job_id}: loading Demucs ({DEFAULT_MODEL})...", flush=True)
+        print(f"[STEMS] Job {job_id}: running demucs on {file_path}...", flush=True)
+        cmd = [
+            sys.executable, "-m", "demucs",
+            "--name", DEFAULT_MODEL,
+            "--out",  job_dir,
+            file_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            raise RuntimeError(f"demucs exited {result.returncode}: {result.stderr[-500:]}")
 
-        from demucs.api import Separator
-        separator = Separator(DEFAULT_MODEL)
-
-        print(f"[STEMS] Job {job_id}: separating {file_path}...", flush=True)
-        origin, separated = separator.separate_audio_file(file_path)
+        audio_name = Path(file_path).stem
+        stem_dir   = Path(job_dir) / DEFAULT_MODEL / audio_name
+        if not stem_dir.exists():
+            stem_dir = Path(job_dir) / audio_name
 
         stems: dict[str, str] = {}
-        sr = separator.samplerate
+        for wav in stem_dir.glob("*.wav"):
+            stems[wav.stem] = str(wav)
+            print(f"[STEMS] Job {job_id}: found {wav.name}", flush=True)
 
-        try:
-            import torchaudio
-            for stem_name, tensor in separated.items():
-                out_path = str(Path(job_dir) / f"{stem_name}.wav")
-                torchaudio.save(out_path, tensor.cpu(), sr)
-                stems[stem_name] = out_path
-                print(f"[STEMS] Job {job_id}: saved {stem_name}.wav", flush=True)
-        except ImportError:
-            # Fallback: use demucs save_audio if torchaudio unavailable
-            from demucs.audio import save_audio
-            for stem_name, tensor in separated.items():
-                out_path = str(Path(job_dir) / f"{stem_name}.wav")
-                save_audio(tensor, out_path, sr)
-                stems[stem_name] = out_path
+        if not stems:
+            raise RuntimeError(f"No WAV files found under {stem_dir}")
 
         _update_job(job_id, status="done", stems=stems, completed=time.time())
-        print(f"[STEMS] Job {job_id}: done. Stems: {list(stems.keys())}", flush=True)
+        print(f"[STEMS] Job {job_id}: done — {list(stems.keys())}", flush=True)
 
-    except ImportError as e:
-        err = f"Demucs not installed: {e}. Run: pip install demucs"
-        print(f"[STEMS] Job {job_id}: {err}", flush=True)
-        _update_job(job_id, status="failed", error=err)
-
+    except subprocess.TimeoutExpired:
+        _update_job(job_id, status="failed", error="Demucs timed out after 10 minutes")
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        print(f"[STEMS] Job {job_id}: failed — {err}", flush=True)
+        print(f"[STEMS] Job {job_id}: FAILED — {err}", flush=True)
         traceback.print_exc()
         _update_job(job_id, status="failed", error=err)
 

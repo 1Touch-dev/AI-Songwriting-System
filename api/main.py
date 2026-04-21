@@ -1,18 +1,18 @@
 """
-api/main.py — FastAPI backend for SonicFlow Studio.
+api/main.py — SonicFlow Studio API v5.0
 
 Endpoints:
-  POST /login                → { token: str }
-  POST /generate             → GenerateResult (lyrics + base64 audio)
-  GET  /artists/search       → { results: [str] }
-  GET  /global-artists       → { artists: dict }
-  POST /chorus/extract       → { chorus: str, found: bool }
-  POST /stems/extract        → { job_id: str, status: str }
-  GET  /stems/{job_id}       → { status, stems: {name: url} }
-  GET  /projects             → { projects: [Project] }
+  POST /login                → { token }
+  POST /generate             → GenerateResult (multipart: JSON fields + optional instrumental file)
+  GET  /artists/search       → { results }
+  GET  /global-artists       → { artists }
+  POST /chorus/extract       → { chorus, found }
+  POST /stems/extract        → { job_id, status }
+  GET  /stems/{job_id}       → { status, stems }
+  GET  /projects             → { projects }
   POST /projects             → Project
-  DELETE /projects/{id}      → { deleted: str }
-  GET  /health               → { status: "ok" }
+  DELETE /projects/{id}      → { deleted }
+  GET  /health               → { status }
 """
 import base64
 import json
@@ -26,18 +26,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# ── Project root on path ──────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-# ── Dirs ──────────────────────────────────────────────────────────────────
 PROJECTS_FILE  = ROOT / "data" / "projects.json"
 STEMS_DIR      = ROOT / "data" / "stems"
 UPLOADS_DIR    = ROOT / "data" / "uploads"
@@ -61,13 +59,12 @@ def _save_projects(projects: list[dict]) -> None:
 from rag.pipeline import SongwritingPipeline, STRUCTURES
 from utils.genius_utils import search_genius_artists
 from services.stem_extractor import extract_stems_async, get_job, cleanup_old_jobs
+from services.audio_mixer import mix_vocal_with_instrumental_bytes, is_ffmpeg_available
 
-app = FastAPI(title="SonicFlow Studio API", version="4.0.0")
+app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
 
-# ── Static files for stems ────────────────────────────────────────────────
 app.mount("/static/stems", StaticFiles(directory=str(STEMS_DIR)), name="stems")
 
-# ── CORS ──────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3001", "http://localhost:3000", "*"],
@@ -76,7 +73,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Lazy-load pipeline ────────────────────────────────────────────────────
 _pipeline: Optional[SongwritingPipeline] = None
 
 def get_pipeline() -> SongwritingPipeline:
@@ -105,28 +101,6 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     token: str
 
-class GenerateRequest(BaseModel):
-    artists: list[str]
-    theme: str
-    structure: list[str]
-    language: str = "English"
-    gender: str = "Neutral"
-    bars: int = 16
-    reference_lyrics: str = ""
-    num_variants: int = 3
-    temperature: float = 0.85
-    style_strength: float = 0.7
-    gen_mode: str = "generate"
-    perspective_mode: str = "same"
-    enable_voice: bool = True
-    enable_music: bool = True
-    # Remix mode fields
-    remix_mode: bool = False
-    locked_chorus: str = ""
-
-class ChorusExtractRequest(BaseModel):
-    lyrics: str
-
 class LyricVariant(BaseModel):
     lyrics: str
     style_fidelity: float
@@ -144,8 +118,13 @@ class GenerateResponse(BaseModel):
     mixed_audio_b64: Optional[str]
     voice_error: Optional[str]
     music_error: Optional[str]
+    mix_error: Optional[str]
     locked_chorus: Optional[str]
+    instrumental_hint: Optional[str]
     timestamp: str
+
+class ChorusExtractRequest(BaseModel):
+    lyrics: str
 
 class Project(BaseModel):
     id: str
@@ -171,13 +150,11 @@ class SaveProjectRequest(BaseModel):
 # ── Chorus extraction helper ──────────────────────────────────────────────
 def _extract_chorus_from_lyrics(lyrics: str) -> str:
     """
-    Extract the chorus/hook from song lyrics.
-    1. Try labeled section headers ([Chorus], [Hook], [Refrain])
-    2. Fall back to GPT-4o-mini for unlabeled lyrics
+    1. Regex — labeled sections ([Chorus], [Hook], [Refrain])
+    2. GPT-4o-mini fallback for unlabeled lyrics
     """
     from openai import OpenAI
 
-    # Fast path: labelled sections
     for pattern in [
         r'\[chorus\](.*?)(?=\n\[|\Z)',
         r'\[hook\](.*?)(?=\n\[|\Z)',
@@ -187,7 +164,6 @@ def _extract_chorus_from_lyrics(lyrics: str) -> str:
         if m:
             return m.group(1).strip()
 
-    # Fallback: LLM extraction
     try:
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         resp = client.chat.completions.create(
@@ -197,23 +173,41 @@ def _extract_chorus_from_lyrics(lyrics: str) -> str:
             messages=[{
                 "role": "user",
                 "content": (
-                    "Extract ONLY the chorus or most-repeated hook section from these song lyrics. "
-                    "Return just the chorus lines with no labels, no commentary.\n\n"
+                    "Extract ONLY the chorus or most-repeated hook section from these lyrics. "
+                    "Return just the lines with no labels or commentary.\n\n"
                     f"Lyrics:\n{lyrics[:2000]}"
                 ),
             }],
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        print(f"[API] Chorus extraction LLM error: {e}")
+        print(f"[API] Chorus LLM error: {e}")
         return ""
+
+
+# ── Instrumental analysis helper ──────────────────────────────────────────
+def _analyze_instrumental(file_bytes: bytes, filename: str) -> str:
+    """
+    Return a short descriptive hint for the uploaded instrumental.
+    Uses file metadata + a basic heuristic. No actual audio processing.
+    """
+    ext = Path(filename).suffix.lower()
+    size_mb = len(file_bytes) / (1024 * 1024)
+    # Rough duration estimate: MP3 at 128kbps ≈ 1MB/min
+    est_minutes = size_mb / (128 * 1000 / 8 / 60 / 1000)
+    hint = (
+        f"{ext.lstrip('.')} track, ~{est_minutes:.1f} minutes. "
+        "Analyze the emotional vibe from the theme and write lyrics to match. "
+        "Match the energy, tempo feel, and emotional texture of the instrumental."
+    )
+    return hint
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "4.0.0"}
+    return {"status": "ok", "version": "5.0.0", "ffmpeg": is_ffmpeg_available()}
 
 
 @app.post("/login", response_model=LoginResponse)
@@ -238,7 +232,6 @@ def artists_search(q: str = ""):
 
 @app.get("/global-artists")
 def global_artists(language: str = ""):
-    """Return global artist database, optionally filtered by language."""
     try:
         data = json.loads(GLOBAL_ARTISTS.read_text()) if GLOBAL_ARTISTS.exists() else {}
         if language:
@@ -250,7 +243,6 @@ def global_artists(language: str = ""):
 
 @app.post("/chorus/extract")
 def chorus_extract(req: ChorusExtractRequest, token: str = Depends(verify_token)):
-    """Extract the chorus/hook from provided song lyrics."""
     if not req.lyrics.strip():
         raise HTTPException(status_code=400, detail="lyrics field is empty")
     chorus = _extract_chorus_from_lyrics(req.lyrics)
@@ -263,48 +255,38 @@ async def stems_extract(
     file: UploadFile = File(...),
     token: str = Depends(verify_token),
 ):
-    """
-    Upload an audio file (MP3/WAV) and start async stem extraction.
-    Returns job_id immediately. Poll GET /stems/{job_id} for status.
-    """
     ext = Path(file.filename or "audio.mp3").suffix.lower()
     if ext not in (".mp3", ".wav", ".m4a", ".flac"):
         raise HTTPException(status_code=400, detail=f"Unsupported format: {ext}. Use MP3 or WAV.")
 
-    # Save uploaded file
-    file_id = uuid.uuid4().hex[:10]
-    upload_path = UPLOADS_DIR / f"{file_id}{ext}"
     content = await file.read()
-    if len(content) > 60 * 1024 * 1024:  # 60 MB limit
+    if len(content) > 60 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 60 MB)")
+
+    file_id     = uuid.uuid4().hex[:10]
+    upload_path = UPLOADS_DIR / f"{file_id}{ext}"
     upload_path.write_bytes(content)
 
-    # Start background extraction
     job_id = extract_stems_async(str(upload_path))
-    print(f"[API] Stem extraction job {job_id} started for {file.filename}", flush=True)
+    print(f"[API] Stem job {job_id} started for {file.filename}", flush=True)
 
-    # Schedule cleanup of old jobs periodically
     background_tasks.add_task(cleanup_old_jobs, 7200)
 
     return {
-        "job_id": job_id,
-        "status": "processing",
-        "filename": file.filename,
-        "size_kb": len(content) // 1024,
+        "job_id":    job_id,
+        "status":    "processing",
+        "filename":  file.filename,
+        "size_kb":   len(content) // 1024,
     }
 
 
 @app.get("/stems/{job_id}")
 def stems_status(job_id: str, token: str = Depends(verify_token)):
-    """
-    Poll stem extraction job status.
-    When done, returns stem download URLs relative to this server.
-    """
     job = get_job(job_id)
     if job.get("status") == "not_found":
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    ec2_ip = os.getenv("EC2_PUBLIC_IP", "localhost")
+    ec2_ip   = os.getenv("EC2_PUBLIC_IP", "localhost")
     base_url = f"http://{ec2_ip}:8000/static/stems/{job_id}"
 
     stem_urls: dict[str, str] = {}
@@ -314,49 +296,111 @@ def stems_status(job_id: str, token: str = Depends(verify_token)):
                 stem_urls[stem_name] = f"{base_url}/{stem_name}.wav"
 
     return {
-        "job_id": job_id,
-        "status": job.get("status"),
-        "stems": stem_urls,
-        "error": job.get("error"),
+        "job_id":    job_id,
+        "status":    job.get("status"),
+        "stems":     stem_urls,
+        "error":     job.get("error"),
         "elapsed_s": int(time.time() - job.get("started", time.time())),
     }
 
 
+# ── Main generation endpoint — accepts multipart form with optional instrumental ──
 @app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest, token: str = Depends(verify_token)):
+async def generate(
+    # JSON payload as a form field
+    payload: str = Form(...),
+    # Optional instrumental file
+    instrumental: Optional[UploadFile] = File(default=None),
+    token: str = Depends(verify_token),
+):
+    """
+    Multipart endpoint:
+      - payload: JSON string with all generation params
+      - instrumental: optional MP3/WAV file to guide lyric style
+    """
+    try:
+        req_data = json.loads(payload)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON in payload field")
+
     pipeline = get_pipeline()
     t0 = time.time()
 
-    # Convert structure list → " → " string
-    if isinstance(req.structure, list):
-        structure_str = " → ".join(s.strip().strip("[]") for s in req.structure)
+    # Extract all request params with defaults
+    artists          = req_data.get("artists", ["Drake"])
+    theme            = req_data.get("theme", "")
+    structure_list   = req_data.get("structure", ["[Verse 1]", "[Chorus]", "[Verse 2]", "[Chorus]"])
+    language         = req_data.get("language", "English")
+    gender           = req_data.get("gender", "Neutral")
+    bars             = int(req_data.get("bars", 16))
+    reference_lyrics = req_data.get("reference_lyrics", "")
+    num_variants     = int(req_data.get("num_variants", 3))
+    temperature      = float(req_data.get("temperature", 0.85))
+    style_strength   = float(req_data.get("style_strength", 0.7))
+    gen_mode         = req_data.get("gen_mode", "generate")
+    perspective_mode = req_data.get("perspective_mode", "same")
+    enable_voice     = bool(req_data.get("enable_voice", True))
+    enable_music     = bool(req_data.get("enable_music", True))
+    remix_mode       = bool(req_data.get("remix_mode", False))
+    locked_chorus    = req_data.get("locked_chorus", "").strip()
+    section_mode     = req_data.get("section_mode", "Full Song")  # Verse Only, Full Song, etc.
+    chorus_strict    = bool(req_data.get("chorus_strict", False))
+    producer_mode    = bool(req_data.get("producer_mode", False))
+
+    # Structure: convert list to string
+    if isinstance(structure_list, list):
+        structure_str = " → ".join(s.strip().strip("[]") for s in structure_list)
     else:
-        structure_str = req.structure
+        structure_str = str(structure_list)
 
-    # Determine locked chorus for remix mode
-    locked_chorus = req.locked_chorus.strip() if req.remix_mode else ""
-    if req.remix_mode and not locked_chorus and req.reference_lyrics:
-        # Auto-extract chorus from reference lyrics
-        locked_chorus = _extract_chorus_from_lyrics(req.reference_lyrics)
-        print(f"[API] Remix mode: auto-extracted chorus ({len(locked_chorus)} chars)", flush=True)
+    # Verse Only mode: override structure
+    if section_mode == "Verse Only":
+        structure_str = "Verse 1"
 
-    # ── Step 1: Lyrics ────────────────────────────────────────────────
+    # ── Handle uploaded instrumental ──────────────────────────────────────
+    instrumental_hint: str = ""
+    instrumental_bytes: Optional[bytes] = None
+    instrumental_ext: str = ".mp3"
+
+    if instrumental is not None and instrumental.filename:
+        try:
+            instrumental_bytes = await instrumental.read()
+            instrumental_ext   = Path(instrumental.filename).suffix.lower() or ".mp3"
+            if len(instrumental_bytes) > 60 * 1024 * 1024:
+                instrumental_bytes = None
+                print("[API] Instrumental too large (>60MB) — skipped.", flush=True)
+            else:
+                instrumental_hint = _analyze_instrumental(instrumental_bytes, instrumental.filename)
+                print(f"[API] Instrumental uploaded: {len(instrumental_bytes):,} bytes, hint: {instrumental_hint[:80]}", flush=True)
+        except Exception as e:
+            print(f"[API] Instrumental read error: {e}", flush=True)
+
+    # ── Determine locked chorus ───────────────────────────────────────────
+    if remix_mode and not locked_chorus and reference_lyrics:
+        locked_chorus = _extract_chorus_from_lyrics(reference_lyrics)
+        print(f"[API] Auto-extracted chorus ({len(locked_chorus)} chars)", flush=True)
+
+    # ── Step 1: Lyrics ────────────────────────────────────────────────────
     try:
         res = pipeline.run(
-            artists=req.artists,
-            theme=req.theme,
+            artists=artists,
+            theme=theme,
             structure=structure_str,
-            language=req.language,
-            gender=req.gender,
-            bars=req.bars,
-            reference_lyrics=req.reference_lyrics,
-            num_variants=req.num_variants,
-            temperature=req.temperature,
-            style_strength=req.style_strength,
-            gen_mode=req.gen_mode,
-            perspective_mode=req.perspective_mode,
-            remix_mode=req.remix_mode,
+            language=language,
+            gender=gender,
+            bars=bars,
+            reference_lyrics=reference_lyrics,
+            num_variants=num_variants,
+            temperature=temperature,
+            style_strength=style_strength,
+            gen_mode=gen_mode,
+            perspective_mode=perspective_mode,
+            remix_mode=remix_mode,
             locked_chorus=locked_chorus,
+            chorus_strict=chorus_strict,
+            producer_mode=producer_mode,
+            instrumental_hint=instrumental_hint,
+            mode=section_mode,
         )
     except Exception as e:
         traceback.print_exc()
@@ -364,10 +408,10 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
 
     lyrics: str = res.get("lyrics", "")
 
-    # ── Step 2: Voice synthesis (ElevenLabs → OpenAI TTS fallback) ────
+    # ── Step 2: Voice synthesis ───────────────────────────────────────────
     voice_bytes: Optional[bytes] = None
     voice_error: Optional[str]  = None
-    if req.enable_voice:
+    if enable_voice:
         try:
             voice_bytes = pipeline.voice_gen.generate_voice(lyrics)
             if voice_bytes and len(voice_bytes) < 1000:
@@ -385,14 +429,14 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
             voice_error = str(e)
             print(f"[API] Voice error: {e}")
 
-    # ── Step 3: Music generation ───────────────────────────────────────
+    # ── Step 3: Music generation ───────────────────────────────────────────
     music_bytes: Optional[bytes] = None
     music_error: Optional[str]  = None
-    if req.enable_music:
+    if enable_music:
         try:
-            style_tags = f"{req.artists[0]} style, {req.language}"
+            style_tags  = f"{artists[0]} style, {language}"
             music_bytes = pipeline.music_gen.run_full_generation(
-                lyrics, style_tags, res.get("theme", req.theme)
+                lyrics, style_tags, res.get("theme", theme)
             )
             if not music_bytes:
                 mg = pipeline.music_gen
@@ -405,14 +449,35 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
             music_error = str(e)
             print(f"[API] Music error: {e}")
 
+    # ── Step 4: Audio mixing ──────────────────────────────────────────────
     mixed_bytes: Optional[bytes] = None
+    mix_error:   Optional[str]  = None
 
-    # ── Step 4: Analysis ───────────────────────────────────────────────
+    # Mix: vocal + uploaded instrumental if both present
+    if voice_bytes and instrumental_bytes:
+        try:
+            mixed_bytes = mix_vocal_with_instrumental_bytes(
+                voice_bytes,
+                instrumental_bytes,
+                ext=instrumental_ext,
+                vocal_vol=1.0,
+                inst_vol=0.8,
+            )
+            if not mixed_bytes:
+                mix_error = "FFmpeg mixing failed — ffmpeg may not be installed"
+        except Exception as e:
+            mix_error = str(e)
+            print(f"[API] Mix error: {e}")
+    elif voice_bytes and not instrumental_bytes:
+        # No instrumental uploaded — skip mixing
+        pass
+
+    # ── Step 5: Real AI Analysis ──────────────────────────────────────────
     analysis = None
     try:
         analysis_res = pipeline.run(
-            artists=req.artists,
-            theme=req.theme,
+            artists=artists,
+            theme=theme,
             structure=structure_str,
             reference_lyrics=lyrics,
             analysis_mode=True,
@@ -428,7 +493,7 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
 
     return GenerateResponse(
         lyrics=lyrics,
-        theme=res.get("theme", req.theme),
+        theme=res.get("theme", theme),
         versions=[
             LyricVariant(lyrics=v.get("lyrics", ""), style_fidelity=v.get("style_fidelity", 0.0))
             for v in res.get("versions", [])
@@ -442,7 +507,9 @@ def generate(req: GenerateRequest, token: str = Depends(verify_token)):
         mixed_audio_b64=to_b64(mixed_bytes),
         voice_error=voice_error,
         music_error=music_error,
+        mix_error=mix_error,
         locked_chorus=locked_chorus or None,
+        instrumental_hint=instrumental_hint or None,
         timestamp=datetime.now().strftime("%H:%M:%S"),
     )
 
@@ -467,15 +534,15 @@ def delete_project(project_id: str, token: str = Depends(verify_token)):
 def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
     projects = _load_projects()
     project = {
-        "id": str(uuid.uuid4()),
-        "title": req.title or req.theme[:40] or "Untitled",
-        "theme": req.theme,
-        "artist": req.artist,
-        "lyrics": req.lyrics,
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "id":         str(uuid.uuid4()),
+        "title":      req.title or req.theme[:40] or "Untitled",
+        "theme":      req.theme,
+        "artist":     req.artist,
+        "lyrics":     req.lyrics,
+        "timestamp":  datetime.now().strftime("%Y-%m-%d %H:%M"),
         "duration_s": req.duration_s,
-        "has_voice": req.has_voice,
-        "has_music": req.has_music,
+        "has_voice":  req.has_voice,
+        "has_music":  req.has_music,
     }
     projects.append(project)
     if len(projects) > 200:
