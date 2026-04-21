@@ -90,6 +90,7 @@ export interface StudioState {
   sectionMode: SectionMode
   chorusStrict: boolean
   producerMode: boolean
+  fastMode: boolean
 }
 
 // Global artist data from /global-artists

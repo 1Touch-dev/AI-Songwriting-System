@@ -188,17 +188,41 @@ def _extract_chorus_from_lyrics(lyrics: str) -> str:
 # ── Instrumental analysis helper ──────────────────────────────────────────
 def _analyze_instrumental(file_bytes: bytes, filename: str) -> str:
     """
-    Return a short descriptive hint for the uploaded instrumental.
-    Uses file metadata + a basic heuristic. No actual audio processing.
+    Return a production-grade prompt hint for the uploaded instrumental.
+    Estimates duration and builds a specific lyric-alignment instruction.
     """
-    ext = Path(filename).suffix.lower()
-    size_mb = len(file_bytes) / (1024 * 1024)
-    # Rough duration estimate: MP3 at 128kbps ≈ 1MB/min
-    est_minutes = size_mb / (128 * 1000 / 8 / 60 / 1000)
+    ext      = Path(filename).suffix.lower()
+    size_mb  = len(file_bytes) / (1024 * 1024)
+    name_hint = Path(filename).stem.replace('_', ' ').replace('-', ' ')
+
+    # Bitrate-based duration estimate
+    bitrate_kbps = 128 if ext == ".mp3" else 1411  # WAV ~1411kbps (44.1k/16bit/stereo)
+    est_seconds  = (size_mb * 8 * 1024) / bitrate_kbps
+    est_minutes  = est_seconds / 60
+
+    # Rough energy / tempo heuristic from filename keywords
+    fname_lower = filename.lower()
+    if any(w in fname_lower for w in ("hard", "heavy", "trap", "drill", "metal", "banger")):
+        energy_hint = "high-energy, aggressive track"
+        tempo_hint  = "fast pacing, short punchy lines (4–6 words), driving rhythm"
+    elif any(w in fname_lower for w in ("slow", "sad", "chill", "lo-fi", "lofi", "ballad", "soft")):
+        energy_hint = "slow, emotional track"
+        tempo_hint  = "slow pacing, longer lines (6–9 words), drawn-out phrasing"
+    elif any(w in fname_lower for w in ("mid", "groove", "r&b", "rnb", "smooth", "vibe")):
+        energy_hint = "mid-tempo groove track"
+        tempo_hint  = "medium pacing, flowing lines (5–8 words), melodic cadence"
+    else:
+        energy_hint = "instrumental track"
+        tempo_hint  = "medium pacing, singable lines (5–8 words)"
+
     hint = (
-        f"{ext.lstrip('.')} track, ~{est_minutes:.1f} minutes. "
-        "Analyze the emotional vibe from the theme and write lyrics to match. "
-        "Match the energy, tempo feel, and emotional texture of the instrumental."
+        f"The user uploaded a {ext.lstrip('.')} file: '{name_hint}' "
+        f"(~{est_minutes:.1f} min, {energy_hint}). "
+        f"Match the tempo, pacing, and emotional cadence of this instrumental. "
+        f"{tempo_hint}. "
+        f"Ensure every lyrical line fits naturally within a consistent rhythmic grid "
+        f"suitable for recording over this track. "
+        f"The emotional arc of the lyrics must mirror the dynamic shape of the music."
     )
     return hint
 

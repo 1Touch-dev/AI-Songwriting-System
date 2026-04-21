@@ -26,10 +26,13 @@ def mix_vocal_with_instrumental(
 ) -> Optional[bytes]:
     """
     Mix vocal (bytes) with instrumental file on disk.
-    Returns mixed MP3 bytes, or None on failure.
 
-    vocal_vol    : volume multiplier for the TTS vocal track (0.0–2.0)
-    inst_vol     : volume multiplier for the instrumental (0.0–2.0)
+    Pipeline:
+      - Normalize both inputs independently (loudnorm)
+      - Vocal: +2 dB boost for presence
+      - Instrumental: -3 dB duck to let vocals sit on top
+      - amix with dropout_transition for clean fade behaviour
+      - Output: 192kbps MP3 (demo quality)
     """
     if not is_ffmpeg_available():
         print("[MIXER] FFmpeg not found — mixing skipped.", flush=True)
@@ -39,31 +42,35 @@ def mix_vocal_with_instrumental(
         with tempfile.TemporaryDirectory() as tmp:
             vocal_path = os.path.join(tmp, "vocal.mp3")
             out_path   = os.path.join(tmp, "mixed.mp3")
-
             Path(vocal_path).write_bytes(vocal_bytes)
+
+            # vocal_vol=1.0 → +2 dB (1.259); inst_vol=0.85 → -3 dB (0.708)
+            v_db = vocal_vol * 1.259   # +2 dB on top of caller's multiplier
+            i_db = inst_vol  * 0.708   # -3 dB on top of caller's multiplier
+
+            filter_complex = (
+                # Normalize vocal loudness
+                f"[0:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume={v_db:.3f}[v];"
+                # Normalize instrumental loudness, then duck it
+                f"[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,volume={i_db:.3f}[i];"
+                # Mix — longest duration, smooth 2s fade on dropout
+                "[v][i]amix=inputs=2:duration=longest:dropout_transition=2[out]"
+            )
 
             cmd = [
                 "ffmpeg", "-y",
                 "-i", vocal_path,
                 "-i", instrumental_path,
-                "-filter_complex",
-                (
-                    f"[0:a]volume={vocal_vol}[v];"
-                    f"[1:a]volume={inst_vol}[i];"
-                    "[v][i]amix=inputs=2:duration=longest:dropout_transition=2[out]"
-                ),
+                "-filter_complex", filter_complex,
                 "-map", "[out]",
                 "-codec:a", "libmp3lame",
-                "-q:a", "2",
+                "-b:a", "192k",
                 out_path,
             ]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=120,
-            )
+            result = subprocess.run(cmd, capture_output=True, timeout=120)
             if result.returncode != 0:
-                print(f"[MIXER] FFmpeg failed: {result.stderr[-300:].decode(errors='replace')}", flush=True)
+                err = result.stderr[-400:].decode(errors='replace')
+                print(f"[MIXER] FFmpeg failed: {err}", flush=True)
                 return None
 
             mixed = Path(out_path).read_bytes()

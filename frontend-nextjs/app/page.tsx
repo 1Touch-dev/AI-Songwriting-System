@@ -62,6 +62,7 @@ const DEFAULT_STATE: StudioState = {
   sectionMode: 'Full Song',
   chorusStrict: false,
   producerMode: false,
+  fastMode: false,
 }
 
 function buildSteps(activeStep: string, completedSteps: Set<string>, failedSteps: Set<string>): PipelineStep[] {
@@ -408,15 +409,17 @@ export default function StudioPage() {
 
     try {
       const isRemix = state.genMode === 'Remix Style'
+      const effectiveBars = state.fastMode ? 8 : state.bars
+      const effectiveVariants = state.fastMode ? 1 : state.numVariants
       const params = {
         artists: [state.artist || 'Drake'],
         theme: state.theme,
         structure: STRUCTURES[state.structure] ?? STRUCTURES['Verse-Chorus (Pop/Rock)'],
         language: state.language,
         gender: state.gender,
-        bars: state.bars,
+        bars: effectiveBars,
         reference_lyrics: state.refLyrics,
-        num_variants: state.numVariants,
+        num_variants: effectiveVariants,
         temperature: state.temperature,
         style_strength: state.styleStrength,
         gen_mode: modeMap[state.genMode],
@@ -816,7 +819,7 @@ export default function StudioPage() {
                 {/* Chorus Mode */}
                 <label className="flex items-center justify-between cursor-pointer">
                   <div>
-                    <span className="text-sm text-text-secondary">Strict Hook Mode</span>
+                    <span className="text-sm text-text-secondary">Hook Writing Mode (Short Form)</span>
                     <p className="text-xs text-text-muted">3-line chorus, 4-6 words each</p>
                   </div>
                   <div className={`relative w-10 h-5 rounded-full transition-colors ${state.chorusStrict ? 'bg-primary' : 'bg-surface-3'}`}
@@ -836,6 +839,20 @@ export default function StudioPage() {
                   <div className={`relative w-10 h-5 rounded-full transition-colors ${state.producerMode ? 'bg-primary' : 'bg-surface-3'}`}
                     onClick={() => set('producerMode')(!state.producerMode)}>
                     <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-transform ${state.producerMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </div>
+                </label>
+
+                {/* Fast Mode */}
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <span className="text-sm text-text-secondary flex items-center gap-1.5">
+                      <Zap size={12} /> Fast Mode
+                    </span>
+                    <p className="text-xs text-text-muted">8 bars, 1 variant — under 10s</p>
+                  </div>
+                  <div className={`relative w-10 h-5 rounded-full transition-colors ${state.fastMode ? 'bg-accent' : 'bg-surface-3'}`}
+                    onClick={() => set('fastMode')(!state.fastMode)}>
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-transform ${state.fastMode ? 'translate-x-5' : 'translate-x-0.5'}`} />
                   </div>
                 </label>
               </div>
@@ -939,7 +956,34 @@ export default function StudioPage() {
                 onChange={e => { set('refLyrics')(e.target.value); setDetectedChorus(''); setLockedChorus('') }} />
 
               {state.genMode === 'Remix Style' && (
-                <div className="space-y-2">
+                <div className="space-y-3">
+                  {/* Step indicator for Remix flow */}
+                  <div className="flex items-center gap-2 text-xs">
+                    {[
+                      { n: 1, label: 'Paste lyrics' },
+                      { n: 2, label: 'Lock chorus' },
+                      { n: 3, label: 'Generate' },
+                    ].map(({ n, label }, idx) => {
+                      const done = n === 1 ? state.refLyrics.trim().length >= 30
+                                 : n === 2 ? !!lockedChorus
+                                 : false
+                      const active = n === 1 ? state.refLyrics.trim().length < 30
+                                   : n === 2 ? state.refLyrics.trim().length >= 30 && !lockedChorus
+                                   : !!lockedChorus
+                      return (
+                        <div key={n} className="flex items-center gap-1.5">
+                          <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                            style={{
+                              background: done ? '#c3f400' : active ? 'rgba(143,245,255,0.2)' : 'rgba(255,255,255,0.06)',
+                              color: done ? '#0e0e0e' : active ? '#8ff5ff' : '#555',
+                            }}>{n}</div>
+                          <span style={{ color: done ? '#c3f400' : active ? '#8ff5ff' : '#444' }}>{label}</span>
+                          {idx < 2 && <span className="text-text-muted">→</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+
                   <button onClick={detectChorus}
                     disabled={detectingChorus || state.refLyrics.trim().length < 30}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-40"

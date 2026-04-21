@@ -13,10 +13,10 @@ interface StemPlayerProps {
 }
 
 const STEM_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  vocals:  { label: 'Vocals',       color: '#d277ff', icon: <Mic2 size={14} />   },
-  drums:   { label: 'Drums',        color: '#8ff5ff', icon: <Drum size={14} />   },
-  bass:    { label: 'Bass',         color: '#c3f400', icon: <Activity size={14} />},
-  other:   { label: 'Instruments',  color: '#ffa502', icon: <Music2 size={14} /> },
+  vocals:  { label: 'Vocals (AI)',             color: '#d277ff', icon: <Mic2 size={14} />   },
+  drums:   { label: 'Drums',                   color: '#8ff5ff', icon: <Drum size={14} />   },
+  bass:    { label: 'Bass',                    color: '#c3f400', icon: <Activity size={14} />},
+  other:   { label: 'Instrumental (Extracted)', color: '#ffa502', icon: <Music2 size={14} /> },
 }
 
 function StemTrack({ name, url }: Stem) {
@@ -127,7 +127,7 @@ export default function StemPlayer({ stems }: StemPlayerProps) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-text-muted">
-        Click any stem to preview. Download as WAV for DAW use.
+        Click any stem to preview. Download individual WAV tracks for use in Logic Pro, Ableton, or FL Studio.
       </p>
       {[...ordered, ...rest].map(name => (
         <StemTrack key={name} name={name} url={stems[name]} />
