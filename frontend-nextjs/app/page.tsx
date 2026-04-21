@@ -570,6 +570,30 @@ export default function StudioPage() {
     router.replace('/login')
   }
 
+  const clearAll = useCallback(() => {
+    abortRef.current?.abort()
+    setHistory([])
+    setResult(null)
+    setState(DEFAULT_STATE)
+    setArtistQuery('')
+    setPipelineStatus('idle')
+    setActiveStep('')
+    setCompletedSteps(new Set())
+    setFailedSteps(new Set())
+    setDetectedChorus('')
+    setLockedChorus('')
+    setStemJobId('')
+    setStemStatus('idle')
+    setStemUrls({})
+    setStemFile(null)
+    setUploadedInst(null)
+    setActiveTab('lyrics')
+    setActiveVariant(0)
+    setRunning(false)
+    localStorage.removeItem(STUDIO_RESULT_KEY)
+    localStorage.removeItem(STUDIO_HISTORY_KEY)
+  }, [])
+
   const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps)
   const hasStemsReady = Object.keys(stemUrls).length > 0
 
@@ -863,15 +887,7 @@ export default function StudioPage() {
 
           {/* Clear */}
           <button
-            onClick={() => {
-              setHistory([]); setResult(null); setState(DEFAULT_STATE)
-              setArtistQuery(''); setPipelineStatus('idle')
-              setDetectedChorus(''); setLockedChorus('')
-              setStemJobId(''); setStemStatus('idle'); setStemUrls({}); setStemFile(null)
-              setUploadedInst(null)
-              localStorage.removeItem(STUDIO_RESULT_KEY)
-              localStorage.removeItem(STUDIO_HISTORY_KEY)
-            }}
+            onClick={clearAll}
             className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm text-text-muted hover:text-error hover:bg-glass transition-all">
             <Trash2 size={14} /> Clear Project
           </button>
@@ -898,9 +914,21 @@ export default function StudioPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full pulse-dot" style={{ background: '#2ed573' }} />
-            <span className="text-xs text-text-muted">System Online</span>
+          <div className="flex items-center gap-3">
+            {(result || running || pipelineStatus !== 'idle') && (
+              <button
+                onClick={clearAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:scale-105 active:scale-95"
+                style={{ background: 'rgba(255,71,87,0.10)', color: '#ff4757', border: '1px solid rgba(255,71,87,0.2)' }}
+                title="Clear all and start fresh"
+              >
+                <RotateCcw size={11} /> New Project
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full pulse-dot" style={{ background: '#2ed573' }} />
+              <span className="text-xs text-text-muted">System Online</span>
+            </div>
           </div>
         </header>
 
