@@ -349,7 +349,29 @@ export default function StudioPage() {
         const proj = JSON.parse(openProject)
         localStorage.removeItem('sonicflow_open_project')
         setArtistQuery(proj.artist || '')
-        setState(s => ({ ...s, artist: proj.artist || '', theme: proj.theme || '', refLyrics: proj.lyrics || '' }))
+        const genModeMap: Record<string, GenMode> = {
+          generate: 'Generate New', continue: 'Continue Story', remix: 'Remix Style',
+        }
+        const perspMap2: Record<string, PerspectiveMode> = {
+          same: 'Same POV', opposite: 'Opposite Empathy', response: 'Response Verse',
+        }
+        setState(s => ({
+          ...s,
+          artist:        proj.artist        || s.artist,
+          theme:         proj.theme         || s.theme,
+          refLyrics:     proj.ref_lyrics    || proj.lyrics || '',
+          language:      (proj.language     || s.language) as Language,
+          bars:          (proj.bars         || s.bars) as 4|8|16|32,
+          structure:     proj.structure     || s.structure,
+          genMode:       genModeMap[proj.gen_mode]            || s.genMode,
+          perspective:   perspMap2[proj.perspective_mode]     || s.perspective,
+          gender:        (proj.gender       || s.gender) as 'Neutral'|'Male'|'Female',
+          styleStrength: proj.style_strength ?? s.styleStrength,
+          temperature:   proj.temperature   ?? s.temperature,
+          chorusStrict:  proj.chorus_strict ?? s.chorusStrict,
+          producerMode:  proj.producer_mode ?? s.producerMode,
+          sectionMode:   (proj.section_mode || s.sectionMode) as SectionMode,
+        }))
         toast(`Opened: ${proj.title || proj.theme || 'Project'}`, { icon: '📂' })
       }
     } catch { /* ignore */ }
@@ -468,13 +490,30 @@ export default function StudioPage() {
 
       try {
         await saveProject(token, {
-          title: res.theme || state.theme || 'Untitled',
-          theme: res.theme || state.theme,
-          artist: state.artist || 'Unknown',
-          lyrics: res.lyrics,
-          has_voice: !!res.voice_audio_b64,
-          has_music: !!res.music_audio_b64,
-          duration_s: 0,
+          title:            res.theme || state.theme || 'Untitled',
+          theme:            res.theme || state.theme,
+          artist:           state.artist || 'Unknown',
+          lyrics:           res.lyrics,
+          has_voice:        !!res.voice_audio_b64,
+          has_music:        !!res.music_audio_b64,
+          has_mix:          !!res.mixed_audio_b64,
+          duration_s:       0,
+          voice_audio_b64:  res.voice_audio_b64,
+          music_audio_b64:  res.music_audio_b64,
+          mixed_audio_b64:  res.mixed_audio_b64,
+          language:         state.language,
+          bars:             effectiveBars,
+          structure:        state.structure,
+          gen_mode:         modeMap[state.genMode],
+          perspective_mode: perspMap[state.perspective],
+          gender:           state.gender,
+          style_strength:   state.styleStrength,
+          temperature:      state.temperature,
+          chorus_strict:    state.chorusStrict,
+          producer_mode:    state.producerMode,
+          section_mode:     state.sectionMode,
+          ref_lyrics:       state.refLyrics || null,
+          analysis:         res.analysis ?? null,
         })
       } catch { /* non-critical */ }
 

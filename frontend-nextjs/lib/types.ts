@@ -62,6 +62,24 @@ export interface Project {
   duration_s: number
   has_voice: boolean
   has_music: boolean
+  has_mix: boolean
+  voice_url: string | null
+  music_url: string | null
+  mix_url: string | null
+  // Generation inputs
+  language: string | null
+  bars: number | null
+  structure: string | null
+  gen_mode: string | null
+  perspective_mode: string | null
+  gender: string | null
+  style_strength: number | null
+  temperature: number | null
+  chorus_strict: boolean | null
+  producer_mode: boolean | null
+  section_mode: string | null
+  ref_lyrics: string | null
+  analysis: Record<string, unknown> | null
 }
 
 export type GenMode = 'Generate New' | 'Continue Story' | 'Remix Style'

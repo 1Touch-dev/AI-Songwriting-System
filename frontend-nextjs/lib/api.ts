@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { GenerateParams, GenerateResult, GlobalArtists } from './types'
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+export const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 const client = axios.create({
   baseURL: BASE_URL,
@@ -55,22 +55,48 @@ export async function getProjects(token: string): Promise<import('./types').Proj
   return res.data.projects ?? []
 }
 
+export interface SaveProjectPayload {
+  title: string
+  theme: string
+  artist: string
+  lyrics: string
+  has_voice: boolean
+  has_music: boolean
+  has_mix?: boolean
+  duration_s?: number
+  voice_audio_b64?: string | null
+  music_audio_b64?: string | null
+  mixed_audio_b64?: string | null
+  language?: string | null
+  bars?: number | null
+  structure?: string | null
+  gen_mode?: string | null
+  perspective_mode?: string | null
+  gender?: string | null
+  style_strength?: number | null
+  temperature?: number | null
+  chorus_strict?: boolean | null
+  producer_mode?: boolean | null
+  section_mode?: string | null
+  ref_lyrics?: string | null
+  analysis?: Record<string, unknown> | null
+}
+
 export async function saveProject(
   token: string,
-  data: {
-    title: string
-    theme: string
-    artist: string
-    lyrics: string
-    has_voice: boolean
-    has_music: boolean
-    duration_s?: number
-  }
+  data: SaveProjectPayload,
 ): Promise<import('./types').Project> {
   const res = await client.post('/projects', data, {
     headers: { Authorization: `Bearer ${token}` },
+    timeout: 30_000,
   })
   return res.data
+}
+
+export function audioUrl(path: string | null): string | null {
+  if (!path) return null
+  if (path.startsWith('http')) return path
+  return `${BASE_URL}${path}`
 }
 
 export async function deleteProject(token: string, projectId: string): Promise<void> {

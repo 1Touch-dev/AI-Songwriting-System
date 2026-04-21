@@ -39,8 +39,9 @@ load_dotenv(ROOT / ".env")
 PROJECTS_FILE  = ROOT / "data" / "projects.json"
 STEMS_DIR      = ROOT / "data" / "stems"
 UPLOADS_DIR    = ROOT / "data" / "uploads"
+AUDIO_DIR      = ROOT / "data" / "audio"
 GLOBAL_ARTISTS = ROOT / "data" / "global_artists.json"
-for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR):
+for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR, AUDIO_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 
@@ -64,6 +65,7 @@ from services.audio_mixer import mix_vocal_with_instrumental_bytes, is_ffmpeg_av
 app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
 
 app.mount("/static/stems", StaticFiles(directory=str(STEMS_DIR)), name="stems")
+app.mount("/audio", StaticFiles(directory=str(AUDIO_DIR)), name="audio")
 
 app.add_middleware(
     CORSMiddleware,
@@ -136,6 +138,24 @@ class Project(BaseModel):
     duration_s: float
     has_voice: bool
     has_music: bool
+    has_mix: bool = False
+    voice_url: Optional[str] = None
+    music_url: Optional[str] = None
+    mix_url: Optional[str] = None
+    # Generation inputs
+    language: Optional[str] = "English"
+    bars: Optional[int] = None
+    structure: Optional[str] = None
+    gen_mode: Optional[str] = None
+    perspective_mode: Optional[str] = None
+    gender: Optional[str] = None
+    style_strength: Optional[float] = None
+    temperature: Optional[float] = None
+    chorus_strict: Optional[bool] = None
+    producer_mode: Optional[bool] = None
+    section_mode: Optional[str] = None
+    ref_lyrics: Optional[str] = None
+    analysis: Optional[dict] = None
 
 class SaveProjectRequest(BaseModel):
     title: str
@@ -144,7 +164,25 @@ class SaveProjectRequest(BaseModel):
     lyrics: str
     has_voice: bool
     has_music: bool
+    has_mix: bool = False
     duration_s: float = 0.0
+    voice_audio_b64: Optional[str] = None
+    music_audio_b64: Optional[str] = None
+    mixed_audio_b64: Optional[str] = None
+    # Generation inputs
+    language: Optional[str] = "English"
+    bars: Optional[int] = None
+    structure: Optional[str] = None
+    gen_mode: Optional[str] = None
+    perspective_mode: Optional[str] = None
+    gender: Optional[str] = None
+    style_strength: Optional[float] = None
+    temperature: Optional[float] = None
+    chorus_strict: Optional[bool] = None
+    producer_mode: Optional[bool] = None
+    section_mode: Optional[str] = None
+    ref_lyrics: Optional[str] = None
+    analysis: Optional[dict] = None
 
 
 # ── Chorus extraction helper ──────────────────────────────────────────────
@@ -557,16 +595,51 @@ def delete_project(project_id: str, token: str = Depends(verify_token)):
 @app.post("/projects", response_model=Project)
 def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
     projects = _load_projects()
+    project_id = str(uuid.uuid4())
+
+    def _write_audio(b64_data: Optional[str], suffix: str) -> Optional[str]:
+        if not b64_data:
+            return None
+        try:
+            raw = base64.b64decode(b64_data)
+            fname = f"{project_id}_{suffix}.mp3"
+            (AUDIO_DIR / fname).write_bytes(raw)
+            return f"/audio/{fname}"
+        except Exception as e:
+            print(f"[PROJECTS] Audio write failed ({suffix}): {e}", flush=True)
+            return None
+
+    voice_url = _write_audio(req.voice_audio_b64, "voice")
+    music_url = _write_audio(req.music_audio_b64, "music")
+    mix_url   = _write_audio(req.mixed_audio_b64, "mix")
+
     project = {
-        "id":         str(uuid.uuid4()),
-        "title":      req.title or req.theme[:40] or "Untitled",
-        "theme":      req.theme,
-        "artist":     req.artist,
-        "lyrics":     req.lyrics,
-        "timestamp":  datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "duration_s": req.duration_s,
-        "has_voice":  req.has_voice,
-        "has_music":  req.has_music,
+        "id":               project_id,
+        "title":            req.title or req.theme[:40] or "Untitled",
+        "theme":            req.theme,
+        "artist":           req.artist,
+        "lyrics":           req.lyrics,
+        "timestamp":        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "duration_s":       req.duration_s,
+        "has_voice":        req.has_voice,
+        "has_music":        req.has_music,
+        "has_mix":          req.has_mix,
+        "voice_url":        voice_url,
+        "music_url":        music_url,
+        "mix_url":          mix_url,
+        "language":         req.language,
+        "bars":             req.bars,
+        "structure":        req.structure,
+        "gen_mode":         req.gen_mode,
+        "perspective_mode": req.perspective_mode,
+        "gender":           req.gender,
+        "style_strength":   req.style_strength,
+        "temperature":      req.temperature,
+        "chorus_strict":    req.chorus_strict,
+        "producer_mode":    req.producer_mode,
+        "section_mode":     req.section_mode,
+        "ref_lyrics":       req.ref_lyrics,
+        "analysis":         req.analysis,
     }
     projects.append(project)
     if len(projects) > 200:
