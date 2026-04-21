@@ -1,0 +1,69 @@
+{
+  "English": {
+    "Pop": ["Taylor Swift", "Ed Sheeran", "Adele", "Dua Lipa", "Harry Styles", "Olivia Rodrigo", "Billie Eilish", "Ariana Grande"],
+    "Hip-Hop": ["Drake", "Kendrick Lamar", "J. Cole", "Travis Scott", "Nicki Minaj", "Cardi B", "Post Malone", "21 Savage"],
+    "R&B": ["SZA", "The Weeknd", "Frank Ocean", "H.E.R.", "Brent Faiyaz", "PinkPantheress", "Giveon", "Summer Walker"],
+    "Rock": ["Coldplay", "Imagine Dragons", "Arctic Monkeys", "Radiohead", "Twenty One Pilots", "Paramore", "Green Day"],
+    "Country": ["Morgan Wallen", "Luke Combs", "Zach Bryan", "Kacey Musgraves", "Chris Stapleton", "Carrie Underwood"],
+    "Electronic": ["Calvin Harris", "Marshmello", "Kygo", "The Chainsmokers", "Disclosure"],
+    "Alternative": ["Tyler the Creator", "Childish Gambino", "Tame Impala", "MGMT", "Vampire Weekend"]
+  },
+  "Spanish": {
+    "Reggaeton": ["Bad Bunny", "J Balvin", "Maluma", "Ozuna", "Daddy Yankee", "Nicky Jam", "Rauw Alejandro"],
+    "Pop Latino": ["Shakira", "Enrique Iglesias", "Ricky Martin", "Luis Fonsi", "Sebastián Yatra", "Camilo"],
+    "Latin Trap": ["Anuel AA", "Myke Towers", "Jhay Cortez", "Mora", "Arcángel"],
+    "Bachata": ["Romeo Santos", "Prince Royce", "Juan Luis Guerra"],
+    "Cumbia": ["Carlos Vives", "Bomba Estéreo"],
+    "Rock en Español": ["Soda Stereo", "Mana", "Café Tacvba", "Los Fabulosos Cadillacs"]
+  },
+  "Hindi": {
+    "Bollywood": ["Arijit Singh", "Sonu Nigam", "Shreya Ghoshal", "Atif Aslam", "Kumar Sanu", "Lata Mangeshkar"],
+    "Indie": ["Prateek Kuhad", "When Chai Met Toast", "Ritviz", "Ankur Tewari", "The Yellow Diary"],
+    "Hip-Hop": ["Raftaar", "Badshah", "Divine", "MC Stan", "Kr$na", "Seedhe Maut"],
+    "Ghazal": ["Jagjit Singh", "Gulam Ali", "Talat Aziz"],
+    "Folk": ["Rekha Bhardwaj", "Rahat Fateh Ali Khan", "Hans Raj Hans"]
+  },
+  "French": {
+    "Pop": ["Stromae", "Christine and the Queens", "Zaz", "Indila", "Aya Nakamura", "Soprano"],
+    "Hip-Hop": ["Booba", "Jul", "Nekfeu", "Gims", "SCH", "Damso", "Orelsan"],
+    "Chanson": ["Edith Piaf", "Jacques Brel", "Serge Gainsbourg", "Charles Aznavour", "Barbara"],
+    "Electronic": ["Daft Punk", "Air", "Justice", "Kavinsky"],
+    "Afro-French": ["Burna Boy (Paris era)", "Aya Nakamura", "Dadju"]
+  },
+  "Arabic": {
+    "Pop": ["Amr Diab", "Nancy Ajram", "Elissa", "Fairuz", "Sherine", "Assala"],
+    "Khaleeji": ["Mohammed Abdo", "Rashed Al Majid", "Hussain Al Jasmi", "Aseel Abou Bakr"],
+    "Mahraganat": ["Hamaki", "Saad Lamjarred", "Mohamed Ramadan"],
+    "Hip-Hop": ["El Rass", "Rayess Bek", "Massari", "Marwan Pablo", "Wegz"],
+    "Sha'bi": ["Hakim", "Ahmed Sheba"],
+    "Classical Arabic": ["Umm Kulthum", "Farid Al-Atrash", "Warda Al-Jazairia"]
+  },
+  "Korean": {
+    "K-Pop": ["BTS", "BLACKPINK", "EXO", "TWICE", "aespa", "NCT 127", "Stray Kids", "NewJeans"],
+    "Hip-Hop": ["G-Dragon", "Zico", "Jay Park", "pH-1", "Dok2", "The Quiett"],
+    "Indie": ["IU", "Heize", "Paul Kim", "Epik High", "AKMU", "Hyukoh"],
+    "R&B": ["Dean", "Crush", "Loco", "Gray", "Sik-K"],
+    "Ballad": ["Sung Si-Kyung", "Park Hyo-shin", "Lee Seung-hwan"]
+  },
+  "Portuguese": {
+    "MPB": ["Caetano Veloso", "Gilberto Gil", "Maria Bethânia", "Gal Costa", "Milton Nascimento"],
+    "Funk": ["Anitta", "MC Kevinho", "Luísa Sonza", "Pabllo Vittar", "Ludmilla"],
+    "Sertanejo": ["Marília Mendonça", "Jorge & Mateus", "Gusttavo Lima", "Henrique & Juliano"],
+    "Trap BR": ["Veigh", "Oruam", "Xamã", "WC No Beat"],
+    "Fado": ["Amália Rodrigues", "Ana Moura", "Mariza", "Salvador Sobral"],
+    "Bossa Nova": ["João Gilberto", "Tom Jobim", "Elis Regina"]
+  },
+  "Japanese": {
+    "J-Pop": ["YOASOBI", "Kenshi Yonezu", "Aimyon", "Official髭男dism", "Mrs. GREEN APPLE"],
+    "City Pop": ["Tatsuro Yamashita", "Mariya Takeuchi", "Plastic Love", "Junko Yagami"],
+    "Hip-Hop": ["Kohh", "KID FRESINO", "ZORN", "Salu", "Bim"],
+    "Rock": ["ONE OK ROCK", "X Japan", "L'Arc~en~Ciel", "BUCKーTICK", "Bump of Chicken"],
+    "Anime OST": ["Linked Horizon", "LiSA", "Aimer", "Hiroyuki Sawano"]
+  },
+  "German": {
+    "Pop": ["Rammstein", "Tokio Hotel", "Xavier Naidoo", "Sunrise Avenue"],
+    "Hip-Hop": ["Capital Bra", "Bushido", "Shindy", "Cro", "KC Rebell"],
+    "Schlager": ["Helene Fischer", "Andrea Berg", "Florian Silbereisen"],
+    "Electronic": ["Kraftwerk", "Scooter", "Alle Farben"]
+  }
+}

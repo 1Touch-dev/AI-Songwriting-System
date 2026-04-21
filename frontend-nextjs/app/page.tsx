@@ -6,13 +6,15 @@ import Link from 'next/link'
 import {
   Music2, Mic2, Sliders, ChevronDown, ChevronRight,
   Radio, Upload, Trash2, Library, Zap, Settings,
-  AlertCircle, Info, RotateCcw, Square
+  AlertCircle, Info, RotateCcw, Square, Lock, Loader2,
+  Scissors
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
 import GenerationStatus, { PipelineStep } from '@/components/GenerationStatus'
+import StemPlayer from '@/components/StemPlayer'
 import type { GenerateResult, StudioState, Language, GenMode, PerspectiveMode } from '@/lib/types'
-import { generateSong, searchArtists, b64ToDownloadUrl, saveProject } from '@/lib/api'
+import { generateSong, searchArtists, b64ToDownloadUrl, saveProject, extractChorus, extractStems, getStemStatus } from '@/lib/api'
 
 // ── Song structures (matches Python STRUCTURES dict) ──────────────────────
 const STRUCTURES: Record<string, string[]> = {
@@ -77,7 +79,6 @@ export default function StudioPage() {
   const [result, setResult] = useState<GenerateResult | null>(null)
   const [history, setHistory] = useState<GenerateResult[]>([])
   const [running, setRunning] = useState(false)
-  const [activeTab, setActiveTab] = useState<'lyrics'|'insights'|'variants'|'stats'>('lyrics')
   const [activeVariant, setActiveVariant] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [creativeOpen, setCreativeOpen] = useState(true)
@@ -98,6 +99,19 @@ export default function StudioPage() {
   const [uploadedInst, setUploadedInst] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Remix mode state
+  const [detectedChorus, setDetectedChorus] = useState('')
+  const [detectingChorus, setDetectingChorus] = useState(false)
+  const [lockedChorus, setLockedChorus] = useState('')
+
+  // Stem extraction state
+  const [stemFile, setStemFile] = useState<File | null>(null)
+  const stemFileRef = useRef<HTMLInputElement>(null)
+  const [stemJobId, setStemJobId] = useState('')
+  const [stemStatus, setStemStatus] = useState<'idle'|'uploading'|'processing'|'done'|'failed'>('idle')
+  const [stemUrls, setStemUrls] = useState<Record<string, string>>({})
+  const [activeTab, setActiveTab] = useState<'lyrics'|'insights'|'variants'|'stats'|'stems'>('lyrics')
 
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
@@ -202,6 +216,7 @@ export default function StudioPage() {
     }
 
     try {
+      const isRemix = state.genMode === 'Remix Style'
       const params = {
         artists: [state.artist || 'Drake'],
         theme: state.theme,
@@ -217,6 +232,8 @@ export default function StudioPage() {
         perspective_mode: perspMap[state.perspective],
         enable_voice: state.enableVoice,
         enable_music: state.enableMusic,
+        remix_mode: isRemix,
+        locked_chorus: isRemix ? lockedChorus : '',
       }
 
       // Simulate step progression while waiting for API
@@ -314,6 +331,66 @@ export default function StudioPage() {
   const stopGeneration = () => {
     abortRef.current?.abort()
   }
+
+  // ── Chorus detection ─────────────────────────────────────────────────
+  const detectChorus = useCallback(async () => {
+    if (!state.refLyrics.trim()) return
+    setDetectingChorus(true)
+    try {
+      const { chorus, found } = await extractChorus(token, state.refLyrics)
+      if (found && chorus) {
+        setDetectedChorus(chorus)
+        setLockedChorus(chorus)
+        toast.success('Chorus detected and locked!')
+      } else {
+        toast.error('No clear chorus found. Paste labeled lyrics or set manually.')
+      }
+    } catch {
+      toast.error('Chorus detection failed.')
+    } finally {
+      setDetectingChorus(false)
+    }
+  }, [state.refLyrics, token])
+
+  // ── Stem extraction ───────────────────────────────────────────────────
+  const startStemExtraction = useCallback(async (file: File) => {
+    if (!file) return
+    setStemStatus('uploading')
+    setStemUrls({})
+    toast('Uploading for stem extraction…', { icon: '🎚️' })
+    try {
+      const { job_id } = await extractStems(token, file)
+      setStemJobId(job_id)
+      setStemStatus('processing')
+      toast('Stems being extracted (2–8 min)…', { icon: '⚙️' })
+    } catch (e: unknown) {
+      setStemStatus('failed')
+      const msg = e instanceof Error ? e.message : 'Upload failed'
+      toast.error(`Stem extraction failed: ${msg}`)
+    }
+  }, [token])
+
+  // Poll stem job status
+  useEffect(() => {
+    if (!stemJobId || stemStatus !== 'processing') return
+    const poll = setInterval(async () => {
+      try {
+        const job = await getStemStatus(token, stemJobId)
+        if (job.status === 'done') {
+          clearInterval(poll)
+          setStemStatus('done')
+          setStemUrls(job.stems)
+          setActiveTab('stems')
+          toast.success('Stems extracted! See Stems tab.')
+        } else if (job.status === 'failed') {
+          clearInterval(poll)
+          setStemStatus('failed')
+          toast.error(`Stem extraction failed: ${job.error || 'unknown error'}`)
+        }
+      } catch { /* keep polling */ }
+    }, 6000)
+    return () => clearInterval(poll)
+  }, [stemJobId, stemStatus, token])
 
   const handleLogout = () => {
     localStorage.removeItem(SESSION_TOKEN_KEY)
@@ -521,6 +598,41 @@ export default function StudioPage() {
                     onChange={e => setUploadedInst(e.target.files?.[0] ?? null)}
                   />
                 </div>
+
+                {/* Stem Extraction */}
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
+                <div>
+                  <label className="label flex items-center gap-1.5">
+                    <Scissors size={11} /> Stem Extraction
+                  </label>
+                  <button
+                    onClick={() => stemFileRef.current?.click()}
+                    className="w-full py-2.5 rounded-xl text-xs text-text-muted border border-dashed transition-colors hover:border-accent hover:text-accent"
+                    style={{ borderColor: 'rgba(195,244,0,0.2)' }}
+                  >
+                    <Upload size={13} className="inline mr-1.5" />
+                    {stemFile ? stemFile.name : 'Upload MP3/WAV for stems'}
+                  </button>
+                  <input ref={stemFileRef} type="file" accept=".mp3,.wav" className="hidden"
+                    onChange={e => {
+                      const f = e.target.files?.[0] ?? null
+                      setStemFile(f)
+                      if (f) startStemExtraction(f)
+                    }}
+                  />
+                  {stemStatus !== 'idle' && (
+                    <div className="mt-2 flex items-center gap-1.5 text-xs"
+                      style={{ color: stemStatus === 'done' ? '#c3f400' : stemStatus === 'failed' ? '#ff4757' : '#ffa502' }}>
+                      {(stemStatus === 'uploading' || stemStatus === 'processing') && (
+                        <Loader2 size={11} className="animate-spin" />
+                      )}
+                      {stemStatus === 'uploading' && 'Uploading…'}
+                      {stemStatus === 'processing' && 'Extracting stems (2–8 min)…'}
+                      {stemStatus === 'done' && '✓ Stems ready — see output panel'}
+                      {stemStatus === 'failed' && 'Extraction failed'}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -532,6 +644,8 @@ export default function StudioPage() {
             onClick={() => {
               setHistory([]); setResult(null); setState(DEFAULT_STATE)
               setArtistQuery(''); setPipelineStatus('idle')
+              setDetectedChorus(''); setLockedChorus('')
+              setStemJobId(''); setStemStatus('idle'); setStemUrls({}); setStemFile(null)
               localStorage.removeItem(STUDIO_RESULT_KEY)
               localStorage.removeItem(STUDIO_HISTORY_KEY)
             }}
@@ -613,8 +727,41 @@ export default function StudioPage() {
                 rows={5}
                 placeholder="Paste existing lyrics here (optional — used for Continue / Remix)..."
                 value={state.refLyrics}
-                onChange={e => set('refLyrics')(e.target.value)}
+                onChange={e => { set('refLyrics')(e.target.value); setDetectedChorus(''); setLockedChorus('') }}
               />
+
+              {/* Remix Mode — Chorus Lock Panel */}
+              {state.genMode === 'Remix Style' && (
+                <div className="space-y-2">
+                  <button
+                    onClick={detectChorus}
+                    disabled={detectingChorus || state.refLyrics.trim().length < 30}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all disabled:opacity-40"
+                    style={{ background: 'rgba(195,244,0,0.10)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.2)' }}
+                  >
+                    {detectingChorus
+                      ? <><Loader2 size={12} className="animate-spin" /> Detecting Chorus…</>
+                      : <><Scissors size={12} /> Detect &amp; Lock Chorus</>}
+                  </button>
+
+                  {detectedChorus && (
+                    <div className="rounded-xl p-3 space-y-1"
+                      style={{ background: 'rgba(195,244,0,0.06)', border: '1px solid rgba(195,244,0,0.15)' }}>
+                      <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#c3f400' }}>
+                        <Lock size={11} /> CHORUS LOCKED — will not be changed
+                      </div>
+                      <pre className="text-xs text-text-secondary whitespace-pre-wrap leading-relaxed">
+                        {detectedChorus}
+                      </pre>
+                      <button
+                        onClick={() => { setDetectedChorus(''); setLockedChorus('') }}
+                        className="text-xs text-text-muted hover:text-error transition-colors mt-1">
+                        Remove lock
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Structure */}
@@ -748,18 +895,19 @@ export default function StudioPage() {
 
                 {/* ── Content Tabs ── */}
                 <div className="glass-panel overflow-hidden">
-                  <div className="flex border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                    {(['lyrics','insights','variants','stats'] as const).map(tab => (
+                  <div className="flex border-b overflow-x-auto" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                    {(['lyrics','insights','variants','stats', ...(Object.keys(stemUrls).length ? ['stems'] : [])] as const).map(tab => (
                       <button
                         key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`flex-1 py-3 text-xs font-display font-semibold uppercase tracking-wider transition-all ${
+                        onClick={() => setActiveTab(tab as typeof activeTab)}
+                        className={`flex-shrink-0 flex-1 py-3 text-xs font-display font-semibold uppercase tracking-wider transition-all ${
                           activeTab === tab ? 'tab-active' : 'text-text-muted hover:text-text-secondary'
                         }`}
                       >
                         {tab === 'lyrics' ? '📝 Lyrics'
                           : tab === 'insights' ? '💡 Insights'
                           : tab === 'variants' ? '🌈 Variants'
+                          : tab === 'stems' ? '🎚️ Stems'
                           : '📊 Stats'}
                       </button>
                     ))}
@@ -768,8 +916,16 @@ export default function StudioPage() {
                   <div className="p-5">
                     {/* Lyrics Tab */}
                     {activeTab === 'lyrics' && (
-                      <div className="whitespace-pre-wrap text-sm leading-loose font-body">
-                        {formatLyrics(result.lyrics)}
+                      <div className="space-y-3">
+                        {result.locked_chorus && (
+                          <div className="rounded-lg px-3 py-2 text-xs"
+                            style={{ background: 'rgba(195,244,0,0.06)', border: '1px solid rgba(195,244,0,0.15)', color: '#c3f400' }}>
+                            <Lock size={10} className="inline mr-1" /> Chorus was locked during remix generation
+                          </div>
+                        )}
+                        <div className="whitespace-pre-wrap text-sm leading-loose font-body">
+                          {formatLyrics(result.lyrics)}
+                        </div>
                       </div>
                     )}
 
@@ -816,6 +972,22 @@ export default function StudioPage() {
                             </div>
                           </>
                         )}
+                      </div>
+                    )}
+
+                    {/* Stems Tab */}
+                    {activeTab === 'stems' && (
+                      <div className="space-y-3">
+                        <h3 className="section-title">Extracted Stems</h3>
+                        {Object.keys(stemUrls).length > 0
+                          ? <StemPlayer stems={stemUrls} />
+                          : (
+                            <p className="text-text-muted text-sm">
+                              {stemStatus === 'processing'
+                                ? 'Stem extraction in progress — check back in a few minutes.'
+                                : 'No stems available. Upload an MP3 in the sidebar to extract stems.'}
+                            </p>
+                          )}
                       </div>
                     )}
 

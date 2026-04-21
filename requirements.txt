@@ -36,3 +36,11 @@ elevenlabs>=2.0.0
 fastapi>=0.109.0
 uvicorn>=0.27.0
 fpdf2>=2.7.0
+python-multipart>=0.0.9
+
+# Stem extraction
+demucs>=4.0.0
+torchaudio>=2.0.0
+
+# Audio utilities
+pydub>=0.25.1
