@@ -77,3 +77,52 @@ export function b64ToDownloadUrl(b64: string, filename: string): void {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+export async function extractChorus(
+  token: string,
+  lyrics: string
+): Promise<{ chorus: string; found: boolean }> {
+  const res = await client.post('/chorus/extract', { lyrics }, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 20_000,
+  })
+  return res.data
+}
+
+export async function extractStems(
+  token: string,
+  file: File,
+  onProgress?: (pct: number) => void
+): Promise<{ job_id: string; status: string; filename: string; size_kb: number }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await client.post('/stems/extract', form, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 60_000,
+    onUploadProgress: e => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+    },
+  })
+  return res.data
+}
+
+export async function getStemStatus(
+  token: string,
+  jobId: string
+): Promise<import('./types').StemJob> {
+  const res = await client.get(`/stems/${jobId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10_000,
+  })
+  return res.data
+}
+
+export async function getGlobalArtists(
+  language?: string
+): Promise<Record<string, Record<string, string[]>>> {
+  const res = await client.get('/global-artists', {
+    params: language ? { language } : {},
+    timeout: 5_000,
+  })
+  return res.data.artists ?? {}
+}

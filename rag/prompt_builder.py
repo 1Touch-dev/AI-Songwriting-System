@@ -282,6 +282,15 @@ LENGTH & BAR CONTROL (STRICT RULE)
 - Every non-header line = one bar. The sum of all non-header lines MUST equal {bars}.
 - Follow the per-section line counts shown in the output template exactly.
 - DO NOT add filler lines, ellipses, or padding beyond {bars} total.
+
+----------------------------------------
+LYRIC ALIGNMENT & CADENCE (CRITICAL)
+----------------------------------------
+
+- Keep lines SHORT: 5 to 8 words maximum per lyrical line.
+- Maintain rhythmic consistency — lines within a section should share similar syllable counts.
+- Cadence anchoring: end each verse with a phrase that sonically leads into the chorus.
+- Avoid run-on lines or overly complex sentence structures — lyrics must be singable.
 """
 
 
@@ -300,6 +309,8 @@ def build_prompt(
     style_strength: float = 0.7,
     retrieval_quality: float = 0.5,
     analysis_mode: bool = False,
+    remix_mode: bool = False,
+    locked_chorus: str = "",
 ) -> tuple[str, str]:
     """
     Build (system_prompt, user_prompt) for V3 Product Layer.
@@ -359,9 +370,25 @@ Style inspiration should remain grounded in: {", ".join(artists)}.
     # --- Mode-specific Logic ---
     mode_instruction = ""
     if mode == "continue":
-        mode_instruction = f"CONTINUATION MODE: Extend the story/narrative from the provided [REFERENCE LYRICS] seamlessly. Maintain the exact same tone and flow."
+        mode_instruction = "CONTINUATION MODE: Extend the story/narrative from the provided [REFERENCE LYRICS] seamlessly. Maintain the exact same tone and flow."
+    elif mode == "remix" and remix_mode and locked_chorus:
+        mode_instruction = f"""REMIX MODE — CHORUS LOCKED:
+The following chorus is LOCKED. You MUST copy it VERBATIM every time [Chorus] appears in the structure.
+DO NOT alter, paraphrase, or improve it in any way.
+
+=== LOCKED CHORUS (copy exactly) ===
+{locked_chorus}
+=== END LOCKED CHORUS ===
+
+Your task: write ONLY the Verse 1, Verse 2, and Bridge sections.
+Rules for your generated sections:
+- Match the theme, tone, and emotional direction of the locked chorus
+- Use a rhyme scheme compatible with the chorus ending sounds
+- Keep line length consistent with the chorus (short, punchy lines)
+- Avoid generic phrasing — be specific and grounded
+"""
     elif mode == "remix":
-        mode_instruction = f"REMIX MODE: Rewrite the ideas in [REFERENCE LYRICS] with the same core theme but using entirely different wording, metaphors, and stylistic variations. A new 'take' on the old song."
+        mode_instruction = "REMIX MODE: Rewrite the ideas in [REFERENCE LYRICS] with the same core theme but using entirely different wording, metaphors, and stylistic variations. A new 'take' on the old song."
 
     # --- Perspective logic ---
     perspective_instruction = ""

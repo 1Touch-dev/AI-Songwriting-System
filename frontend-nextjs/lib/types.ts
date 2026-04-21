@@ -13,6 +13,16 @@ export interface GenerateParams {
   perspective_mode: 'same' | 'opposite' | 'response'
   enable_voice: boolean
   enable_music: boolean
+  remix_mode: boolean
+  locked_chorus: string
+}
+
+export interface StemJob {
+  job_id: string
+  status: 'processing' | 'done' | 'failed' | 'not_found'
+  stems: Record<string, string>   // stem name → URL
+  error: string | null
+  elapsed_s: number
 }
 
 export interface LyricVariant {
@@ -33,6 +43,7 @@ export interface GenerateResult {
   mixed_audio_b64: string | null
   voice_error: string | null
   music_error: string | null
+  locked_chorus: string | null
   timestamp: string
 }
 

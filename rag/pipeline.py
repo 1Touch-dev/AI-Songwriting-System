@@ -171,6 +171,8 @@ Respond ONLY with valid JSON:
         gen_mode: str = "generate", # Product mode (generate, continue, remix)
         perspective_mode: str = "same", # POV mode (same, opposite, response)
         analysis_mode: bool = False,
+        remix_mode: bool = False,
+        locked_chorus: str = "",
     ) -> dict:
         """
         Run the full pipeline and return a result dict.
@@ -204,7 +206,13 @@ Respond ONLY with valid JSON:
             "gen_mode": gen_mode,
             "perspective_mode": perspective_mode,
             "analysis_mode": analysis_mode,
+            "remix_mode": remix_mode,
+            "locked_chorus": locked_chorus,
         }
+
+        # In remix mode, override gen_mode so prompt builder handles it correctly
+        if remix_mode:
+            gen_mode = "remix"
 
         # ── Parallel Query Expansion & Base Retrieval ─────────────────────
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -288,6 +296,8 @@ Respond ONLY with valid JSON:
             style_strength=style_strength,
             retrieval_quality=rq,
             analysis_mode=analysis_mode,
+            remix_mode=remix_mode,
+            locked_chorus=locked_chorus,
         )
 
         if analysis_mode:
