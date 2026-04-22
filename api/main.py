@@ -65,7 +65,8 @@ from services.audio_mixer import mix_vocal_with_instrumental_bytes, is_ffmpeg_av
 
 app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
 
-app.mount("/static/stems", StaticFiles(directory=str(STEMS_DIR)), name="stems")
+# NOTE: StaticFiles removed — stem audio served via /stems/{job_id}/audio/{stem_name}
+# so FastAPI CORS middleware applies and browser can play cross-origin audio.
 
 app.add_middleware(
     CORSMiddleware,
@@ -355,20 +356,57 @@ async def stems_extract(
     }
 
 
+def _stems_from_disk(job_id: str) -> dict[str, str]:
+    """Scan the job directory for WAV files — survives API restarts."""
+    job_dir = STEMS_DIR / job_id
+    if not job_dir.exists():
+        return {}
+    return {wav.stem: str(wav) for wav in job_dir.rglob("*.wav") if wav.is_file()}
+
+
+@app.get("/stems/{job_id}/audio/{stem_name}")
+def serve_stem_audio(job_id: str, stem_name: str):
+    """Serve a single stem WAV with CORS headers.
+    No token required — job_id is a 12-char hex nonce (unguessable).
+    Falls back to disk scan so API restarts don't break existing jobs.
+    """
+    if not re.match(r'^[a-z_]+$', stem_name):
+        raise HTTPException(status_code=400, detail="Invalid stem name")
+
+    # Try in-memory first, fall back to disk scan
+    job = get_job(job_id)
+    stems = job.get("stems", {}) if job.get("status") == "done" else {}
+    if not stems:
+        stems = _stems_from_disk(job_id)
+
+    if stem_name not in stems:
+        raise HTTPException(status_code=404, detail=f"Stem '{stem_name}' not found")
+    file_path = Path(stems[stem_name])
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Stem file missing on disk")
+    return FileResponse(file_path, media_type="audio/wav", filename=f"{stem_name}.wav")
+
+
 @app.get("/stems/{job_id}")
 def stems_status(job_id: str, token: str = Depends(verify_token)):
     job = get_job(job_id)
+
+    # If not in memory (API restarted), reconstruct from disk
     if job.get("status") == "not_found":
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        disk_stems = _stems_from_disk(job_id)
+        if disk_stems:
+            job = {"status": "done", "stems": disk_stems, "started": 0, "error": None}
+        else:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
     ec2_ip   = os.getenv("EC2_PUBLIC_IP", "localhost")
-    base_url = f"http://{ec2_ip}:8000/static/stems/{job_id}"
+    api_base = f"http://{ec2_ip}:8000"
 
     stem_urls: dict[str, str] = {}
     if job.get("status") == "done":
         for stem_name, file_path in job.get("stems", {}).items():
             if Path(file_path).exists():
-                stem_urls[stem_name] = f"{base_url}/{stem_name}.wav"
+                stem_urls[stem_name] = f"{api_base}/stems/{job_id}/audio/{stem_name}"
 
     return {
         "job_id":    job_id,
