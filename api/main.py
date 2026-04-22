@@ -123,6 +123,7 @@ class GenerateResponse(BaseModel):
     mix_error: Optional[str]
     locked_chorus: Optional[str]
     instrumental_hint: Optional[str]
+    output_mode: str
     timestamp: str
 
 class ChorusExtractRequest(BaseModel):
@@ -146,6 +147,7 @@ class Project(BaseModel):
     language: Optional[str] = "English"
     bars: Optional[int] = None
     structure: Optional[str] = None
+    output_mode: Optional[str] = "draft"
     gen_mode: Optional[str] = None
     perspective_mode: Optional[str] = None
     gender: Optional[str] = None
@@ -173,6 +175,7 @@ class SaveProjectRequest(BaseModel):
     language: Optional[str] = "English"
     bars: Optional[int] = None
     structure: Optional[str] = None
+    output_mode: Optional[str] = "draft"
     gen_mode: Optional[str] = None
     perspective_mode: Optional[str] = None
     gender: Optional[str] = None
@@ -411,13 +414,31 @@ async def generate(
     style_strength   = float(req_data.get("style_strength", 0.7))
     gen_mode         = req_data.get("gen_mode", "generate")
     perspective_mode = req_data.get("perspective_mode", "same")
-    enable_voice     = bool(req_data.get("enable_voice", True))
-    enable_music     = bool(req_data.get("enable_music", True))
     remix_mode       = bool(req_data.get("remix_mode", False))
     locked_chorus    = req_data.get("locked_chorus", "").strip()
-    section_mode     = req_data.get("section_mode", "Full Song")  # Verse Only, Full Song, etc.
+    section_mode     = req_data.get("section_mode", "Full Song")
     chorus_strict    = bool(req_data.get("chorus_strict", False))
     producer_mode    = bool(req_data.get("producer_mode", False))
+
+    # ── Output mode routing ───────────────────────────────────────────────
+    # draft       → ElevenLabs voice only; mix only on explicit enable_mix=True
+    # music_demo  → Suno full song only; no voice, no mix
+    # producer    → ElevenLabs voice as reference; no Suno; never auto-mix
+    output_mode  = req_data.get("output_mode", "draft")  # draft | music_demo | producer
+    enable_mix   = bool(req_data.get("enable_mix", False))
+
+    if output_mode == "music_demo":
+        enable_voice = False
+        enable_music = True
+        enable_mix   = False
+    elif output_mode == "producer":
+        enable_voice = True
+        enable_music = False
+        enable_mix   = False  # producer assembles in DAW — never auto-mix
+    else:  # draft (default)
+        enable_voice = bool(req_data.get("enable_voice", True))
+        enable_music = False  # Suno not triggered in draft mode
+        # enable_mix stays as-is (user explicit)
 
     # Structure: convert list to string
     if isinstance(structure_list, list):
@@ -521,12 +542,15 @@ async def generate(
             music_error = str(e)
             print(f"[API] Music error: {e}")
 
-    # ── Step 4: Audio mixing ──────────────────────────────────────────────
+    # ── Step 4: Audio mixing (explicit request only) ──────────────────────
+    # Mixing is NEVER automatic. Only triggered when:
+    #   - output_mode == "draft"
+    #   - enable_mix == True (user clicked "Mix with Uploaded Track")
+    #   - voice bytes and instrumental bytes both present
     mixed_bytes: Optional[bytes] = None
     mix_error:   Optional[str]  = None
 
-    # Mix: vocal + uploaded instrumental if both present
-    if voice_bytes and instrumental_bytes:
+    if enable_mix and voice_bytes and instrumental_bytes and output_mode == "draft":
         try:
             mixed_bytes = mix_vocal_with_instrumental_bytes(
                 voice_bytes,
@@ -540,9 +564,8 @@ async def generate(
         except Exception as e:
             mix_error = str(e)
             print(f"[API] Mix error: {e}")
-    elif voice_bytes and not instrumental_bytes:
-        # No instrumental uploaded — skip mixing
-        pass
+    elif enable_mix and not instrumental_bytes:
+        mix_error = "No instrumental uploaded — upload an MP3/WAV to mix"
 
     # ── Step 5: Real AI Analysis ──────────────────────────────────────────
     analysis = None
@@ -582,6 +605,7 @@ async def generate(
         mix_error=mix_error,
         locked_chorus=locked_chorus or None,
         instrumental_hint=instrumental_hint or None,
+        output_mode=output_mode,
         timestamp=datetime.now().strftime("%H:%M:%S"),
     )
 
@@ -640,6 +664,7 @@ def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
         "language":         req.language,
         "bars":             req.bars,
         "structure":        req.structure,
+        "output_mode":      req.output_mode or "draft",
         "gen_mode":         req.gen_mode,
         "perspective_mode": req.perspective_mode,
         "gender":           req.gender,

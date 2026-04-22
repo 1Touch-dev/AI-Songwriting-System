@@ -70,6 +70,7 @@ export interface SaveProjectPayload {
   language?: string | null
   bars?: number | null
   structure?: string | null
+  output_mode?: string | null
   gen_mode?: string | null
   perspective_mode?: string | null
   gender?: string | null

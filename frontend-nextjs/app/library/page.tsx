@@ -134,6 +134,7 @@ export default function LibraryPage() {
         language:         p.language,
         bars:             p.bars,
         structure:        p.structure,
+        output_mode:      (p as Project & { output_mode?: string }).output_mode || 'draft',
         gen_mode:         p.gen_mode,
         perspective_mode: p.perspective_mode,
         gender:           p.gender,

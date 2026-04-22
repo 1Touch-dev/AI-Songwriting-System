@@ -7,7 +7,7 @@ import {
   Music2, Mic2, Sliders, ChevronDown, ChevronRight,
   Radio, Upload, Trash2, Library, Zap, Settings,
   AlertCircle, Info, RotateCcw, Square, Lock, Loader2,
-  Scissors, Globe, ChevronUp, Layers, Wand2
+  Scissors, Globe, Layers, Wand2, Download, Blend
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
@@ -15,7 +15,7 @@ import GenerationStatus, { PipelineStep } from '@/components/GenerationStatus'
 import StemPlayer from '@/components/StemPlayer'
 import type {
   GenerateResult, StudioState, Language, GenMode, PerspectiveMode,
-  SectionMode, GlobalArtists
+  SectionMode, GlobalArtists, OutputMode
 } from '@/lib/types'
 import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
@@ -57,29 +57,61 @@ const DEFAULT_STATE: StudioState = {
   numVariants: 3,
   temperature: 0.85,
   styleStrength: 0.7,
-  enableVoice: true,
-  enableMusic: true,
+  outputMode: 'draft',
+  enableMix: false,
   sectionMode: 'Full Song',
   chorusStrict: false,
   producerMode: false,
   fastMode: false,
 }
 
-function buildSteps(activeStep: string, completedSteps: Set<string>, failedSteps: Set<string>): PipelineStep[] {
-  const steps = [
-    { id: 'lyrics',   label: 'Synthesizing Lyrics' },
-    { id: 'voice',    label: 'Vocal Synthesis (ElevenLabs)' },
-    { id: 'music',    label: 'Full Song (Suno AI)' },
-    { id: 'mix',      label: 'Audio Mixing' },
-    { id: 'analysis', label: 'AI Analysis' },
+const OUTPUT_MODE_CONFIG = {
+  draft: {
+    label: 'Draft Mode',
+    sub: 'Voice Demo (ElevenLabs)',
+    color: '#d277ff',
+    icon: <Mic2 size={12} />,
+    desc: 'Quick vocal preview of your lyrics',
+  },
+  music_demo: {
+    label: 'Music Demo Mode',
+    sub: 'Full Song (Suno AI)',
+    color: '#c3f400',
+    icon: <Music2 size={12} />,
+    desc: 'Complete song with vocals + instruments',
+  },
+  producer: {
+    label: 'Producer Remix',
+    sub: 'Stems + Vocal Export',
+    color: '#ffa502',
+    icon: <Layers size={12} />,
+    desc: 'DAW-ready: vocal ref + stems for your session',
+  },
+} as const
+
+function buildSteps(
+  activeStep: string,
+  completedSteps: Set<string>,
+  failedSteps: Set<string>,
+  outputMode: OutputMode,
+): PipelineStep[] {
+  const allSteps = [
+    { id: 'lyrics',   label: 'Synthesizing Lyrics',          modes: ['draft', 'music_demo', 'producer'] },
+    { id: 'voice',    label: 'Draft Vocal (ElevenLabs)',      modes: ['draft', 'producer'] },
+    { id: 'music',    label: 'Full Song (Suno AI)',           modes: ['music_demo'] },
+    { id: 'mix',      label: 'Quick Demo Mix',                modes: ['draft'] },
+    { id: 'analysis', label: 'AI Analysis',                   modes: ['draft', 'music_demo', 'producer'] },
   ]
-  return steps.map(s => ({
-    ...s,
-    status: failedSteps.has(s.id) ? 'failed'
-      : completedSteps.has(s.id) ? 'done'
-      : s.id === activeStep ? 'active'
-      : 'pending',
-  }))
+  return allSteps
+    .filter(s => s.modes.includes(outputMode))
+    .map(s => ({
+      id: s.id,
+      label: s.label,
+      status: failedSteps.has(s.id) ? 'failed'
+        : completedSteps.has(s.id) ? 'done'
+        : s.id === activeStep ? 'active'
+        : 'pending',
+    }))
 }
 
 // ── Global Artist Picker component ────────────────────────────────────────
@@ -363,6 +395,7 @@ export default function StudioPage() {
           language:      (proj.language     || s.language) as Language,
           bars:          (proj.bars         || s.bars) as 4|8|16|32,
           structure:     proj.structure     || s.structure,
+          outputMode:    (proj.output_mode  || s.outputMode) as OutputMode,
           genMode:       genModeMap[proj.gen_mode]            || s.genMode,
           perspective:   perspMap2[proj.perspective_mode]     || s.perspective,
           gender:        (proj.gender       || s.gender) as 'Neutral'|'Male'|'Female',
@@ -444,15 +477,15 @@ export default function StudioPage() {
         num_variants: effectiveVariants,
         temperature: state.temperature,
         style_strength: state.styleStrength,
+        output_mode: state.outputMode,
+        enable_mix: state.outputMode === 'draft' && state.enableMix,
         gen_mode: modeMap[state.genMode],
         perspective_mode: perspMap[state.perspective],
-        enable_voice: state.enableVoice,
-        enable_music: state.enableMusic,
         remix_mode: isRemix,
         locked_chorus: isRemix ? lockedChorus : '',
         section_mode: state.sectionMode === 'Verse Only' ? 'Verse Only' : 'Full Song',
         chorus_strict: state.chorusStrict,
-        producer_mode: state.producerMode,
+        producer_mode: state.outputMode === 'producer' || state.producerMode,
       }
 
       t1 = setTimeout(() => { markDone('lyrics'); nextStep('voice') }, 3000)
@@ -464,9 +497,9 @@ export default function StudioPage() {
       clearTimers()
 
       const failed = new Set<string>()
-      if (!res.voice_audio_b64) failed.add('voice')
-      if (!res.music_audio_b64) failed.add('music')
-      if (!res.mixed_audio_b64 && uploadedInst) failed.add('mix')
+      if (state.outputMode !== 'music_demo' && !res.voice_audio_b64) failed.add('voice')
+      if (state.outputMode === 'music_demo' && !res.music_audio_b64) failed.add('music')
+      if (state.outputMode === 'draft' && state.enableMix && !res.mixed_audio_b64) failed.add('mix')
       if (!res.analysis) failed.add('analysis')
       setFailedSteps(failed)
       setCompletedSteps(new Set(['lyrics','voice','music','mix','analysis'].filter(s => !failed.has(s))))
@@ -504,13 +537,14 @@ export default function StudioPage() {
           language:         state.language,
           bars:             effectiveBars,
           structure:        state.structure,
+          output_mode:      state.outputMode,
           gen_mode:         modeMap[state.genMode],
           perspective_mode: perspMap[state.perspective],
           gender:           state.gender,
           style_strength:   state.styleStrength,
           temperature:      state.temperature,
           chorus_strict:    state.chorusStrict,
-          producer_mode:    state.producerMode,
+          producer_mode:    state.outputMode === 'producer' || state.producerMode,
           section_mode:     state.sectionMode,
           ref_lyrics:       state.refLyrics || null,
           analysis:         res.analysis ?? null,
@@ -629,11 +663,13 @@ export default function StudioPage() {
     setActiveTab('lyrics')
     setActiveVariant(0)
     setRunning(false)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (stemFileRef.current) stemFileRef.current.value = ''
     localStorage.removeItem(STUDIO_RESULT_KEY)
     localStorage.removeItem(STUDIO_HISTORY_KEY)
   }, [])
 
-  const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps)
+  const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps, state.outputMode)
   const hasStemsReady = Object.keys(stemUrls).length > 0
 
   if (!authChecked) return null
@@ -783,36 +819,44 @@ export default function StudioPage() {
             )}
           </div>
 
-          {/* Multimodal Engines */}
+          {/* Output Mode */}
+          <div>
+            <label className="label">Output Mode</label>
+            <div className="space-y-1.5">
+              {(Object.entries(OUTPUT_MODE_CONFIG) as [OutputMode, typeof OUTPUT_MODE_CONFIG[OutputMode]][]).map(([id, cfg]) => (
+                <button key={id} onClick={() => set('outputMode')(id)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left"
+                  style={state.outputMode === id
+                    ? { background: `${cfg.color}18`, border: `1px solid ${cfg.color}40`, color: cfg.color }
+                    : { background: 'rgba(255,255,255,0.03)', border: '1px solid transparent', color: '#555' }}>
+                  <span className="flex-shrink-0">{cfg.icon}</span>
+                  <div>
+                    <div>{cfg.label}</div>
+                    <div className="font-normal opacity-70">{cfg.sub}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: '#444' }}>
+              {OUTPUT_MODE_CONFIG[state.outputMode].desc}
+            </p>
+          </div>
+
+          {/* Multimodal Tools */}
           <div>
             <button className="flex items-center justify-between w-full text-left mb-3"
               onClick={() => setMultimodalOpen(o => !o)}>
-              <span className="section-title flex items-center gap-2"><Mic2 size={13} /> Multimodal Engines</span>
+              <span className="section-title flex items-center gap-2"><Mic2 size={13} /> Audio Tools</span>
               {multimodalOpen ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
             </button>
 
             {multimodalOpen && (
               <div className="space-y-3">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-sm text-text-secondary">Voice Synthesis</span>
-                  <div className={`relative w-10 h-5 rounded-full transition-colors ${state.enableVoice ? 'bg-primary' : 'bg-surface-3'}`}
-                    onClick={() => set('enableVoice')(!state.enableVoice)}>
-                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-transform ${state.enableVoice ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                  </div>
-                </label>
-                <label className="flex items-center justify-between cursor-pointer">
-                  <span className="text-sm text-text-secondary">Music Production</span>
-                  <div className={`relative w-10 h-5 rounded-full transition-colors ${state.enableMusic ? 'bg-primary' : 'bg-surface-3'}`}
-                    onClick={() => set('enableMusic')(!state.enableMusic)}>
-                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-transform ${state.enableMusic ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                  </div>
-                </label>
-
-                {/* Upload Instrumental — sent to backend */}
+                {/* Upload Instrumental */}
                 <div>
                   <label className="label flex items-center gap-1.5">
                     <Upload size={11} /> Upload Instrumental
-                    <span className="text-xs text-text-muted">(guides lyric style + mixes)</span>
+                    <span className="text-xs text-text-muted">(shapes lyric style)</span>
                   </label>
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -824,19 +868,33 @@ export default function StudioPage() {
                     }}
                   >
                     <Upload size={13} className="inline mr-1.5" />
-                    {uploadedInst ? uploadedInst.name : 'MP3 / WAV — sent to AI'}
+                    {uploadedInst ? uploadedInst.name : 'MP3 / WAV'}
                   </button>
                   <input ref={fileInputRef} type="file" accept=".mp3,.wav" className="hidden"
                     onChange={e => setUploadedInst(e.target.files?.[0] ?? null)} />
                   {uploadedInst && (
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-xs" style={{ color: '#d277ff' }}>
-                        ✓ Will guide lyric style + mix vocals
-                      </span>
+                      <span className="text-xs" style={{ color: '#d277ff' }}>✓ Shaping lyric cadence</span>
                       <button onClick={() => setUploadedInst(null)} className="text-xs text-text-muted hover:text-error">remove</button>
                     </div>
                   )}
                 </div>
+
+                {/* Mix toggle — Draft mode only */}
+                {state.outputMode === 'draft' && uploadedInst && (
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="text-sm text-text-secondary flex items-center gap-1.5">
+                        <Blend size={11} /> Mix with Uploaded Track
+                      </span>
+                      <p className="text-xs text-text-muted">Vocal layered over your beat</p>
+                    </div>
+                    <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${state.enableMix ? 'bg-primary' : 'bg-surface-3'}`}
+                      onClick={() => set('enableMix')(!state.enableMix)}>
+                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-background transition-transform ${state.enableMix ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </div>
+                  </label>
+                )}
 
                 {/* Stem Extraction */}
                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
@@ -948,8 +1006,10 @@ export default function StudioPage() {
                 Global AI Music Studio
               </h1>
               <p className="text-xs text-text-muted mt-0.5">
-                AI Songwriting · Voice Synthesis · Music Generation · Stem Extraction
-                {state.producerMode && <span style={{ color: '#ffa502' }}> · Producer Mode</span>}
+                AI Songwriting · Stem Extraction · Multi-language
+                <span style={{ color: OUTPUT_MODE_CONFIG[state.outputMode].color }}>
+                  {' '}· {OUTPUT_MODE_CONFIG[state.outputMode].label}
+                </span>
               </p>
             </div>
           </div>
@@ -1153,54 +1213,113 @@ export default function StudioPage() {
                   </div>
                 </div>
 
-                {/* Audio Players */}
+                {/* Audio Players — context-aware by output_mode */}
                 <div className="glass-panel p-5 space-y-4">
-                  <h3 className="section-title">Production Playback</h3>
-                  <div className="text-xs text-text-muted font-mono">
-                    VOICE: {result.voice_audio_b64 ? `${Math.round(result.voice_audio_b64.length * 0.75 / 1024)} KB` : '0'}
-                    {' · '}
-                    MUSIC: {result.music_audio_b64 ? `${Math.round(result.music_audio_b64.length * 0.75 / 1024)} KB` : '0'}
-                    {result.mixed_audio_b64 && ` · MIX: ${Math.round(result.mixed_audio_b64.length * 0.75 / 1024)} KB`}
+                  <div className="flex items-center justify-between">
+                    <h3 className="section-title">Production Output</h3>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                      style={{
+                        background: `${OUTPUT_MODE_CONFIG[result.output_mode as OutputMode]?.color || '#8ff5ff'}18`,
+                        color: OUTPUT_MODE_CONFIG[result.output_mode as OutputMode]?.color || '#8ff5ff',
+                      }}>
+                      {OUTPUT_MODE_CONFIG[result.output_mode as OutputMode]?.label || result.output_mode}
+                    </span>
                   </div>
 
-                  {result.voice_audio_b64 ? (
-                    <AudioPlayer b64={result.voice_audio_b64} label="Vocal Output (ElevenLabs)"
-                      filename={`voice_${result.timestamp}.mp3`} accentColor="#d277ff" />
-                  ) : (
-                    <div className="flex items-center gap-2 text-error text-xs p-3 rounded-xl"
-                      style={{ background: 'rgba(255,71,87,0.08)' }}>
-                      <AlertCircle size={14} />
-                      Vocal generation failed — {result.voice_error || 'check ElevenLabs API key'}
-                    </div>
+                  {/* DRAFT MODE: ElevenLabs voice + optional mix */}
+                  {result.output_mode === 'draft' && (
+                    <>
+                      {result.voice_audio_b64 ? (
+                        <AudioPlayer b64={result.voice_audio_b64} label="Draft Vocal (ElevenLabs)"
+                          filename={`vocal_draft_${result.timestamp}.mp3`} accentColor="#d277ff" />
+                      ) : (
+                        <div className="flex items-center gap-2 text-error text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(255,71,87,0.08)' }}>
+                          <AlertCircle size={14} />
+                          Vocal generation failed — {result.voice_error || 'check ElevenLabs API key'}
+                        </div>
+                      )}
+                      {result.mixed_audio_b64 && (
+                        <AudioPlayer b64={result.mixed_audio_b64} label="Quick Demo Mix (Vocal + Beat)"
+                          filename={`demo_mix_${result.timestamp}.mp3`} accentColor="#ffa502" />
+                      )}
+                      {state.enableMix && !result.mixed_audio_b64 && result.mix_error && (
+                        <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(255,165,2,0.05)', color: '#ffa502' }}>
+                          <Info size={14} /> Mix unavailable — {result.mix_error}
+                        </div>
+                      )}
+                      {uploadedInst && (
+                        <div className="space-y-2">
+                          <span className="section-title">Your Uploaded Beat</span>
+                          <audio src={URL.createObjectURL(uploadedInst)} controls className="w-full" />
+                        </div>
+                      )}
+                    </>
                   )}
 
-                  {result.music_audio_b64 ? (
-                    <AudioPlayer b64={result.music_audio_b64} label="Full Song Output (Suno AI)"
-                      filename={`music_${result.timestamp}.mp3`} accentColor="#c3f400" />
-                  ) : state.enableMusic && (
-                    <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
-                      style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
-                      <Info size={14} />
-                      Music generation failed — {result.music_error || 'check Suno credits'}
-                    </div>
+                  {/* MUSIC DEMO MODE: Suno full song */}
+                  {result.output_mode === 'music_demo' && (
+                    <>
+                      {result.music_audio_b64 ? (
+                        <AudioPlayer b64={result.music_audio_b64} label="Full Song (Suno AI — vocals + instruments)"
+                          filename={`full_song_${result.timestamp}.mp3`} accentColor="#c3f400" />
+                      ) : (
+                        <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
+                          <Info size={14} />
+                          Music generation failed — {result.music_error || 'check Suno credits'}
+                        </div>
+                      )}
+                      <div className="text-xs p-3 rounded-xl" style={{ background: 'rgba(195,244,0,0.04)', color: '#555' }}>
+                        Suno generates complete songs with real vocal delivery + instrumentation.
+                        Download below and import to your DAW.
+                      </div>
+                    </>
                   )}
 
-                  {result.mixed_audio_b64 && (
-                    <AudioPlayer b64={result.mixed_audio_b64} label="🎛️ Final Mix (Vocal + Instrumental)"
-                      filename={`mix_${result.timestamp}.mp3`} accentColor="#ffa502" />
-                  )}
-                  {uploadedInst && !result.mixed_audio_b64 && result.mix_error && (
-                    <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
-                      style={{ background: 'rgba(255,165,2,0.05)', color: '#ffa502' }}>
-                      <Info size={14} /> Mix unavailable — {result.mix_error}
-                    </div>
-                  )}
-
-                  {uploadedInst && (
-                    <div className="space-y-2">
-                      <span className="section-title">Uploaded Instrumental</span>
-                      <audio src={URL.createObjectURL(uploadedInst)} controls className="w-full" />
-                    </div>
+                  {/* PRODUCER MODE: ElevenLabs reference + stems focus */}
+                  {result.output_mode === 'producer' && (
+                    <>
+                      <div className="text-xs p-3 rounded-xl font-semibold"
+                        style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
+                        Producer mode: reference vocal + stems. No auto-mix — assemble in your DAW.
+                      </div>
+                      {result.voice_audio_b64 ? (
+                        <AudioPlayer b64={result.voice_audio_b64} label="Reference Vocal (ElevenLabs)"
+                          filename={`vocal_ref_${result.timestamp}.mp3`} accentColor="#ffa502" />
+                      ) : (
+                        <div className="flex items-center gap-2 text-error text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(255,71,87,0.08)' }}>
+                          <AlertCircle size={14} />
+                          Vocal generation failed — {result.voice_error || 'check ElevenLabs API key'}
+                        </div>
+                      )}
+                      {result.voice_audio_b64 && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => b64ToDownloadUrl(result.voice_audio_b64!, `vocal_ref_${result.timestamp}.mp3`)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                            style={{ background: 'rgba(255,165,2,0.10)', color: '#ffa502', border: '1px solid rgba(255,165,2,0.2)' }}>
+                            <Download size={11} /> vocals.mp3
+                          </button>
+                          {uploadedInst && (
+                            <a
+                              href={URL.createObjectURL(uploadedInst)}
+                              download={uploadedInst.name}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                              style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.2)' }}>
+                              <Download size={11} /> instrumental.{uploadedInst.name.split('.').pop()}
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {hasStemsReady && (
+                        <div className="text-xs" style={{ color: '#c3f400' }}>
+                          ✓ Stems extracted — see Stems tab for individual WAV downloads
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 

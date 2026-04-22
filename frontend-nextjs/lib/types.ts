@@ -1,3 +1,5 @@
+export type OutputMode = 'draft' | 'music_demo' | 'producer'
+
 export interface GenerateParams {
   artists: string[]
   theme: string
@@ -11,13 +13,13 @@ export interface GenerateParams {
   style_strength: number
   gen_mode: 'generate' | 'continue' | 'remix'
   perspective_mode: 'same' | 'opposite' | 'response'
-  enable_voice: boolean
-  enable_music: boolean
+  output_mode: OutputMode      // draft | music_demo | producer
+  enable_mix: boolean          // explicit request to mix vocal + uploaded instrumental
   remix_mode: boolean
   locked_chorus: string
   section_mode: string         // 'Full Song' | 'Verse Only'
-  chorus_strict: boolean       // natural vs strict 3-line hook
-  producer_mode: boolean       // producer mode toggle
+  chorus_strict: boolean
+  producer_mode: boolean
 }
 
 export interface StemJob {
@@ -49,6 +51,7 @@ export interface GenerateResult {
   mix_error: string | null
   locked_chorus: string | null
   instrumental_hint: string | null
+  output_mode: string
   timestamp: string
 }
 
@@ -103,8 +106,8 @@ export interface StudioState {
   numVariants: 1 | 3 | 5
   temperature: number
   styleStrength: number
-  enableVoice: boolean
-  enableMusic: boolean
+  outputMode: OutputMode
+  enableMix: boolean           // explicit mix request (Draft mode only)
   sectionMode: SectionMode
   chorusStrict: boolean
   producerMode: boolean
