@@ -427,14 +427,24 @@ async def generate(
     output_mode  = req_data.get("output_mode", "draft")  # draft | music_demo | producer
     enable_mix   = bool(req_data.get("enable_mix", False))
 
+    # vocal_source: how producer mode generates the vocal track
+    #   suno_singing  → Suno full song (real musical vocals); user extracts stems in DAW
+    #   reference_tts → ElevenLabs speech (timing/rhythm guide only)
+    vocal_source = req_data.get("vocal_source", "suno_singing")
+
     if output_mode == "music_demo":
         enable_voice = False
         enable_music = True
         enable_mix   = False
     elif output_mode == "producer":
-        enable_voice = True
-        enable_music = False
-        enable_mix   = False  # producer assembles in DAW — never auto-mix
+        if vocal_source == "suno_singing":
+            # Suno generates a complete song; producer extracts vocal stem themselves
+            enable_voice = False
+            enable_music = True
+        else:  # reference_tts
+            enable_voice = True
+            enable_music = False
+        enable_mix = False  # producer assembles in DAW — never auto-mix
     else:  # draft (default)
         enable_voice = bool(req_data.get("enable_voice", True))
         enable_music = False  # Suno not triggered in draft mode

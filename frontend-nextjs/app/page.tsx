@@ -15,7 +15,7 @@ import GenerationStatus, { PipelineStep } from '@/components/GenerationStatus'
 import StemPlayer from '@/components/StemPlayer'
 import type {
   GenerateResult, StudioState, Language, GenMode, PerspectiveMode,
-  SectionMode, GlobalArtists, OutputMode
+  SectionMode, GlobalArtists, OutputMode, ProducerVocalSource
 } from '@/lib/types'
 import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
@@ -59,6 +59,7 @@ const DEFAULT_STATE: StudioState = {
   styleStrength: 0.7,
   outputMode: 'draft',
   enableMix: false,
+  producerVocalSource: 'suno_singing',
   sectionMode: 'Full Song',
   chorusStrict: false,
   producerMode: false,
@@ -82,10 +83,10 @@ const OUTPUT_MODE_CONFIG = {
   },
   producer: {
     label: 'Producer Remix',
-    sub: 'Stems + Vocal Export',
+    sub: 'Stems + DAW Export',
     color: '#ffa502',
     icon: <Layers size={12} />,
-    desc: 'DAW-ready: vocal ref + stems for your session',
+    desc: 'No auto-mix — vocals + stems exported for your DAW session',
   },
 } as const
 
@@ -94,16 +95,18 @@ function buildSteps(
   completedSteps: Set<string>,
   failedSteps: Set<string>,
   outputMode: OutputMode,
+  producerVocalSource: ProducerVocalSource,
 ): PipelineStep[] {
+  const producerUsesSuno = outputMode === 'producer' && producerVocalSource === 'suno_singing'
   const allSteps = [
-    { id: 'lyrics',   label: 'Synthesizing Lyrics',          modes: ['draft', 'music_demo', 'producer'] },
-    { id: 'voice',    label: 'Draft Vocal (ElevenLabs)',      modes: ['draft', 'producer'] },
-    { id: 'music',    label: 'Full Song (Suno AI)',           modes: ['music_demo'] },
-    { id: 'mix',      label: 'Quick Demo Mix',                modes: ['draft'] },
-    { id: 'analysis', label: 'AI Analysis',                   modes: ['draft', 'music_demo', 'producer'] },
+    { id: 'lyrics',   label: 'Synthesizing Lyrics',                  show: true },
+    { id: 'voice',    label: 'Timing Guide Vocal (ElevenLabs)',       show: outputMode === 'draft' || (outputMode === 'producer' && !producerUsesSuno) },
+    { id: 'music',    label: outputMode === 'producer' ? 'AI Song with Vocals (Suno)' : 'Full Song (Suno AI)', show: outputMode === 'music_demo' || producerUsesSuno },
+    { id: 'mix',      label: 'Quick Demo Mix',                        show: outputMode === 'draft' },
+    { id: 'analysis', label: 'AI Analysis',                           show: true },
   ]
   return allSteps
-    .filter(s => s.modes.includes(outputMode))
+    .filter(s => s.show)
     .map(s => ({
       id: s.id,
       label: s.label,
@@ -479,6 +482,7 @@ export default function StudioPage() {
         style_strength: state.styleStrength,
         output_mode: state.outputMode,
         enable_mix: state.outputMode === 'draft' && state.enableMix,
+        vocal_source: state.outputMode === 'producer' ? state.producerVocalSource : undefined,
         gen_mode: modeMap[state.genMode],
         perspective_mode: perspMap[state.perspective],
         remix_mode: isRemix,
@@ -497,8 +501,12 @@ export default function StudioPage() {
       clearTimers()
 
       const failed = new Set<string>()
-      if (state.outputMode !== 'music_demo' && !res.voice_audio_b64) failed.add('voice')
-      if (state.outputMode === 'music_demo' && !res.music_audio_b64) failed.add('music')
+      const expectsVoice = state.outputMode === 'draft' ||
+        (state.outputMode === 'producer' && state.producerVocalSource === 'reference_tts')
+      const expectsMusic = state.outputMode === 'music_demo' ||
+        (state.outputMode === 'producer' && state.producerVocalSource === 'suno_singing')
+      if (expectsVoice && !res.voice_audio_b64) failed.add('voice')
+      if (expectsMusic && !res.music_audio_b64) failed.add('music')
       if (state.outputMode === 'draft' && state.enableMix && !res.mixed_audio_b64) failed.add('mix')
       if (!res.analysis) failed.add('analysis')
       setFailedSteps(failed)
@@ -669,7 +677,7 @@ export default function StudioPage() {
     localStorage.removeItem(STUDIO_HISTORY_KEY)
   }, [])
 
-  const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps, state.outputMode)
+  const pipelineSteps = buildSteps(activeStep, completedSteps, failedSteps, state.outputMode, state.producerVocalSource)
   const hasStemsReady = Object.keys(stemUrls).length > 0
 
   if (!authChecked) return null
@@ -841,6 +849,42 @@ export default function StudioPage() {
               {OUTPUT_MODE_CONFIG[state.outputMode].desc}
             </p>
           </div>
+
+          {/* Producer Vocal Source — only visible in Producer Remix mode */}
+          {state.outputMode === 'producer' && (
+            <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(255,165,2,0.06)', border: '1px solid rgba(255,165,2,0.15)' }}>
+              <label className="label" style={{ color: '#ffa502' }}>Vocal Source</label>
+              <button
+                onClick={() => set('producerVocalSource')('suno_singing')}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left"
+                style={state.producerVocalSource === 'suno_singing'
+                  ? { background: 'rgba(195,244,0,0.12)', border: '1px solid rgba(195,244,0,0.3)', color: '#c3f400' }
+                  : { background: 'rgba(255,255,255,0.03)', border: '1px solid transparent', color: '#555' }}>
+                <Music2 size={11} />
+                <div>
+                  <div>AI Singing <span className="font-normal opacity-60">(Suno)</span></div>
+                  <div className="font-normal opacity-60">Musical vocals — recommended</div>
+                </div>
+              </button>
+              <button
+                onClick={() => set('producerVocalSource')('reference_tts')}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all text-left"
+                style={state.producerVocalSource === 'reference_tts'
+                  ? { background: 'rgba(210,119,255,0.10)', border: '1px solid rgba(210,119,255,0.25)', color: '#d277ff' }
+                  : { background: 'rgba(255,255,255,0.03)', border: '1px solid transparent', color: '#555' }}>
+                <Mic2 size={11} />
+                <div>
+                  <div>Timing Guide <span className="font-normal opacity-60">(Fast)</span></div>
+                  <div className="font-normal opacity-60">TTS rhythm reference only</div>
+                </div>
+              </button>
+              {state.producerVocalSource === 'reference_tts' && (
+                <p className="text-xs px-1" style={{ color: '#888' }}>
+                  TTS is spoken — not singable. Use for bar-count reference only.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Multimodal Tools */}
           <div>
@@ -1278,45 +1322,89 @@ export default function StudioPage() {
                     </>
                   )}
 
-                  {/* PRODUCER MODE: ElevenLabs reference + stems focus */}
+                  {/* PRODUCER MODE */}
                   {result.output_mode === 'producer' && (
                     <>
-                      <div className="text-xs p-3 rounded-xl font-semibold"
-                        style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
-                        Producer mode: reference vocal + stems. No auto-mix — assemble in your DAW.
-                      </div>
-                      {result.voice_audio_b64 ? (
-                        <AudioPlayer b64={result.voice_audio_b64} label="Reference Vocal (ElevenLabs)"
-                          filename={`vocal_ref_${result.timestamp}.mp3`} accentColor="#ffa502" />
-                      ) : (
+                      {/* AI Singing path — Suno full song */}
+                      {result.music_audio_b64 && (
+                        <>
+                          <AudioPlayer b64={result.music_audio_b64}
+                            label="AI Song (Suno — extract stems for isolated vocals)"
+                            filename={`producer_song_${result.timestamp}.mp3`} accentColor="#c3f400" />
+                          <div className="text-xs p-3 rounded-xl"
+                            style={{ background: 'rgba(195,244,0,0.06)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.12)' }}>
+                            Upload this to the Stems tab → Demucs will isolate vocals, drums, bass, and instrumental separately.
+                          </div>
+                        </>
+                      )}
+                      {!result.music_audio_b64 && result.music_error && (
+                        <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
+                          <Info size={14} /> Suno generation failed — {result.music_error}
+                        </div>
+                      )}
+
+                      {/* Reference TTS path — ElevenLabs timing guide */}
+                      {result.voice_audio_b64 && (
+                        <>
+                          <AudioPlayer b64={result.voice_audio_b64}
+                            label="Timing Guide Vocal (TTS — rhythm reference only)"
+                            filename={`timing_guide_${result.timestamp}.mp3`} accentColor="#d277ff" />
+                          <div className="text-xs p-3 rounded-xl"
+                            style={{ background: 'rgba(210,119,255,0.06)', color: '#888' }}>
+                            This is spoken delivery — use it to map bar lengths and phrasing in your DAW, not for final vocal.
+                          </div>
+                        </>
+                      )}
+                      {!result.voice_audio_b64 && result.voice_error && (
                         <div className="flex items-center gap-2 text-error text-xs p-3 rounded-xl"
                           style={{ background: 'rgba(255,71,87,0.08)' }}>
                           <AlertCircle size={14} />
-                          Vocal generation failed — {result.voice_error || 'check ElevenLabs API key'}
+                          Voice generation failed — {result.voice_error}
                         </div>
                       )}
-                      {result.voice_audio_b64 && (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => b64ToDownloadUrl(result.voice_audio_b64!, `vocal_ref_${result.timestamp}.mp3`)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
-                            style={{ background: 'rgba(255,165,2,0.10)', color: '#ffa502', border: '1px solid rgba(255,165,2,0.2)' }}>
-                            <Download size={11} /> vocals.mp3
-                          </button>
-                          {uploadedInst && (
-                            <a
-                              href={URL.createObjectURL(uploadedInst)}
-                              download={uploadedInst.name}
-                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
-                              style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.2)' }}>
-                              <Download size={11} /> instrumental.{uploadedInst.name.split('.').pop()}
-                            </a>
+
+                      {/* DAW export buttons */}
+                      {(result.music_audio_b64 || result.voice_audio_b64) && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-semibold" style={{ color: '#ffa502' }}>
+                            Export for DAW
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {result.music_audio_b64 && (
+                              <button
+                                onClick={() => b64ToDownloadUrl(result.music_audio_b64!, `producer_song_${result.timestamp}.mp3`)}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                                style={{ background: 'rgba(195,244,0,0.10)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.2)' }}>
+                                <Download size={11} /> full_song.mp3
+                              </button>
+                            )}
+                            {result.voice_audio_b64 && (
+                              <button
+                                onClick={() => b64ToDownloadUrl(result.voice_audio_b64!, `timing_guide_${result.timestamp}.mp3`)}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                                style={{ background: 'rgba(210,119,255,0.10)', color: '#d277ff', border: '1px solid rgba(210,119,255,0.2)' }}>
+                                <Download size={11} /> timing_guide.mp3
+                              </button>
+                            )}
+                            {uploadedInst && (
+                              <a
+                                href={URL.createObjectURL(uploadedInst)}
+                                download={uploadedInst.name}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                                style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502', border: '1px solid rgba(255,165,2,0.2)' }}>
+                                <Download size={11} /> instrumental.{uploadedInst.name.split('.').pop()}
+                              </a>
+                            )}
+                          </div>
+                          <p className="text-xs" style={{ color: '#555' }}>
+                            Ready for FL Studio · Logic Pro · Ableton Live
+                          </p>
+                          {hasStemsReady && (
+                            <p className="text-xs" style={{ color: '#c3f400' }}>
+                              ✓ Individual stems available in Stems tab
+                            </p>
                           )}
-                        </div>
-                      )}
-                      {hasStemsReady && (
-                        <div className="text-xs" style={{ color: '#c3f400' }}>
-                          ✓ Stems extracted — see Stems tab for individual WAV downloads
                         </div>
                       )}
                     </>

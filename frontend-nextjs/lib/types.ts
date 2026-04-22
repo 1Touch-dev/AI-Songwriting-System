@@ -88,6 +88,7 @@ export interface Project {
 export type GenMode = 'Generate New' | 'Continue Story' | 'Remix Style'
 export type PerspectiveMode = 'Same POV' | 'Opposite Empathy' | 'Response Verse'
 export type SectionMode = 'Full Song' | 'Verse Only'
+export type ProducerVocalSource = 'suno_singing' | 'reference_tts'
 export type Language =
   | 'English' | 'Spanish' | 'French' | 'German'
   | 'Hindi' | 'Arabic' | 'Portuguese' | 'Japanese'
@@ -108,6 +109,7 @@ export interface StudioState {
   styleStrength: number
   outputMode: OutputMode
   enableMix: boolean           // explicit mix request (Draft mode only)
+  producerVocalSource: ProducerVocalSource
   sectionMode: SectionMode
   chorusStrict: boolean
   producerMode: boolean
