@@ -521,6 +521,32 @@ export default function StudioPage() {
       setActiveVariant(0)
       toast.success('Production complete!')
 
+      // Auto-extract stems when Producer + AI Singing — skip the manual re-upload step
+      if (
+        state.outputMode === 'producer' &&
+        state.producerVocalSource === 'suno_singing' &&
+        res.music_audio_b64
+      ) {
+        try {
+          const binary = atob(res.music_audio_b64)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const blob = new Blob([bytes], { type: 'audio/mpeg' })
+          const autoFile = new File([blob], `producer_song_${res.timestamp}.mp3`, { type: 'audio/mpeg' })
+          setStemFile(autoFile)
+          setStemStatus('uploading')
+          setStemUrls({})
+          toast('Stem extraction started automatically — see Stems tab in 2–8 min', { icon: '🎚️' })
+          try {
+            const { job_id } = await extractStems(token, autoFile)
+            setStemJobId(job_id)
+            setStemStatus('processing')
+          } catch {
+            setStemStatus('failed')
+          }
+        } catch { /* non-critical */ }
+      }
+
       try {
         localStorage.setItem(STUDIO_RESULT_KEY, JSON.stringify(res))
         const historyMeta = newHistory.slice(0, 20).map(h => ({
@@ -853,6 +879,25 @@ export default function StudioPage() {
           {/* Producer Vocal Source — only visible in Producer Remix mode */}
           {state.outputMode === 'producer' && (
             <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(255,165,2,0.06)', border: '1px solid rgba(255,165,2,0.15)' }}>
+              {/* Visual workflow guide */}
+              <div className="flex items-center gap-1.5 text-xs font-semibold mb-1" style={{ color: '#ffa502' }}>
+                Producer Flow
+              </div>
+              <div className="flex items-center gap-1 text-xs mb-2">
+                {[
+                  { n: 1, label: 'Generate' },
+                  { n: 2, label: 'Extract Stems' },
+                  { n: 3, label: 'Export to DAW' },
+                ].map(({ n, label }, idx) => (
+                  <div key={n} className="flex items-center gap-1">
+                    <div className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                      style={{ background: 'rgba(255,165,2,0.25)', color: '#ffa502', fontSize: '9px' }}>{n}</div>
+                    <span style={{ color: '#888' }}>{label}</span>
+                    {idx < 2 && <span style={{ color: '#444' }}>→</span>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ height: '1px', background: 'rgba(255,165,2,0.1)' }} />
               <label className="label" style={{ color: '#ffa502' }}>Vocal Source</label>
               <button
                 onClick={() => set('producerVocalSource')('suno_singing')}
@@ -1329,11 +1374,15 @@ export default function StudioPage() {
                       {result.music_audio_b64 && (
                         <>
                           <AudioPlayer b64={result.music_audio_b64}
-                            label="AI Song (Suno — extract stems for isolated vocals)"
+                            label="AI Song (Suno — real vocals + instruments)"
                             filename={`producer_song_${result.timestamp}.mp3`} accentColor="#c3f400" />
                           <div className="text-xs p-3 rounded-xl"
                             style={{ background: 'rgba(195,244,0,0.06)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.12)' }}>
-                            Upload this to the Stems tab → Demucs will isolate vocals, drums, bass, and instrumental separately.
+                            {stemStatus === 'processing' || stemStatus === 'uploading'
+                              ? '⚙️ Stem extraction running automatically — check Stems tab in 2–8 min'
+                              : stemStatus === 'done'
+                              ? '✓ Stems extracted automatically — see Stems tab'
+                              : 'Stem extraction will start automatically. Check the Stems tab for isolated vocals, drums, and bass.'}
                           </div>
                         </>
                       )}
