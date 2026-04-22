@@ -532,7 +532,8 @@ export default function StudioPage() {
           const bytes = new Uint8Array(binary.length)
           for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
           const blob = new Blob([bytes], { type: 'audio/mpeg' })
-          const autoFile = new File([blob], `producer_song_${res.timestamp}.mp3`, { type: 'audio/mpeg' })
+          const safeTs = res.timestamp.replace(/:/g, '-')
+          const autoFile = new File([blob], `producer_song_${safeTs}.mp3`, { type: 'audio/mpeg' })
           setStemFile(autoFile)
           setStemStatus('uploading')
           setStemUrls({})
@@ -1375,7 +1376,7 @@ export default function StudioPage() {
                         <>
                           <AudioPlayer b64={result.music_audio_b64}
                             label="AI Song (Suno — real vocals + instruments)"
-                            filename={`producer_song_${result.timestamp}.mp3`} accentColor="#c3f400" />
+                            filename={`producer_song_${result.timestamp.replace(/:/g,'-')}.mp3`} accentColor="#c3f400" />
                           <div className="text-xs p-3 rounded-xl"
                             style={{ background: 'rgba(195,244,0,0.06)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.12)' }}>
                             {stemStatus === 'processing' || stemStatus === 'uploading'
