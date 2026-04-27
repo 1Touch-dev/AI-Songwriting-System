@@ -413,10 +413,14 @@ function ProjectCard({
           onClick={e => e.stopPropagation()}>
           <div className="pt-3 space-y-2">
             {voiceAudio && (
-              <MiniPlayer url={voiceAudio} label="Vocal Output" color="#d277ff" />
+              <MiniPlayer
+                url={voiceAudio}
+                label={p.has_music ? 'Timing Guide (ElevenLabs)' : 'Vocal Output'}
+                color="#d277ff"
+              />
             )}
             {musicAudio && (
-              <MiniPlayer url={musicAudio} label="Full Song" color="#c3f400" />
+              <MiniPlayer url={musicAudio} label="Full Song (Suno AI)" color="#c3f400" />
             )}
             {mixAudio && (
               <MiniPlayer url={mixAudio} label="Final Mix" color="#ffa502" />

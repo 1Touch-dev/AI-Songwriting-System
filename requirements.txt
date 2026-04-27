@@ -41,9 +41,13 @@ python-multipart>=0.0.9
 # Stem extraction
 demucs>=4.0.0
 torchaudio>=2.0.0
+torchcodec>=0.1.0
 
 # Audio utilities
 pydub>=0.25.1
+
+# Audio analysis (BPM + key detection)
+librosa>=0.10.0
 
 # Audio mixing (ensure ffmpeg binary is installed separately: apt-get install ffmpeg)
 # No extra Python dep needed — uses subprocess ffmpeg

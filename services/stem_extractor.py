@@ -9,6 +9,7 @@ Uses subprocess `python -m demucs` for compatibility across demucs versions.
 """
 from __future__ import annotations
 
+import os
 import sys
 import subprocess
 import time
@@ -89,6 +90,11 @@ def _run_extraction(job_id: str, file_path: str, job_dir: str):
         if not stems:
             raise RuntimeError(f"No WAV files found under {stem_dir}")
 
+        # Normalize all stems to -14 LUFS before marking job done
+        for stem_name, stem_path in stems.items():
+            print(f"[STEMS] Job {job_id}: normalizing {stem_name}.wav...", flush=True)
+            _normalize_loudness(stem_path)
+
         _update_job(job_id, status="done", stems=stems, completed=time.time())
         print(f"[STEMS] Job {job_id}: done — {list(stems.keys())}", flush=True)
 
@@ -99,6 +105,31 @@ def _run_extraction(job_id: str, file_path: str, job_dir: str):
         print(f"[STEMS] Job {job_id}: FAILED — {err}", flush=True)
         traceback.print_exc()
         _update_job(job_id, status="failed", error=err)
+
+
+def _normalize_loudness(wav_path: str) -> None:
+    """Apply ffmpeg loudnorm (I=-14 LUFS, LRA=11, TP=-1) to a WAV in-place."""
+    tmp = wav_path + ".norm.wav"
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", wav_path,
+                "-af", "loudnorm=I=-14:LRA=11:TP=-1",
+                tmp,
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            os.replace(tmp, wav_path)
+        else:
+            print(f"[STEMS] loudnorm failed on {wav_path}: {result.stderr[-200:]}", flush=True)
+            if os.path.exists(tmp):
+                os.remove(tmp)
+    except Exception as e:
+        print(f"[STEMS] loudnorm error on {wav_path}: {e}", flush=True)
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def _update_job(job_id: str, **kwargs):

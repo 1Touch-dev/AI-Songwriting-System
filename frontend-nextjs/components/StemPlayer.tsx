@@ -1,15 +1,23 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { Play, Pause, Download, Music2, Mic2, Drum, Activity } from 'lucide-react'
+import { Play, Pause, Download, Music2, Mic2, Drum, Activity, Archive, Gauge, Music } from 'lucide-react'
+import { BASE_URL } from '@/lib/api'
 
 interface Stem {
   name: string
   url: string
 }
 
+interface AudioMetadata {
+  bpm: number
+  key: string
+}
+
 interface StemPlayerProps {
   stems: Record<string, string>  // stem name → URL
+  jobId?: string
+  audioMetadata?: AudioMetadata | null
 }
 
 const STEM_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -116,7 +124,7 @@ function StemTrack({ name, url }: Stem) {
   )
 }
 
-export default function StemPlayer({ stems }: StemPlayerProps) {
+export default function StemPlayer({ stems, jobId, audioMetadata }: StemPlayerProps) {
   const entries = Object.entries(stems)
   if (entries.length === 0) return null
 
@@ -124,14 +132,54 @@ export default function StemPlayer({ stems }: StemPlayerProps) {
   const ordered = ['vocals', 'drums', 'bass', 'other'].filter(n => stems[n])
   const rest = entries.filter(([n]) => !ordered.includes(n)).map(([n]) => n)
 
+  const downloadZip = () => {
+    if (!jobId) return
+    const a = document.createElement('a')
+    a.href = `${BASE_URL}/stems/${jobId}/download-zip`
+    a.download = `stems_${jobId}.zip`
+    a.click()
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
+      {/* Metadata chips */}
+      {audioMetadata && (audioMetadata.bpm > 0 || audioMetadata.key !== 'Unknown') && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {audioMetadata.bpm > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ background: 'rgba(143,245,255,0.10)', color: '#8ff5ff', border: '1px solid rgba(143,245,255,0.2)' }}>
+              <Gauge size={11} />
+              {audioMetadata.bpm} BPM
+            </div>
+          )}
+          {audioMetadata.key && audioMetadata.key !== 'Unknown' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ background: 'rgba(210,119,255,0.10)', color: '#d277ff', border: '1px solid rgba(210,119,255,0.2)' }}>
+              <Music size={11} />
+              {audioMetadata.key}
+            </div>
+          )}
+        </div>
+      )}
+
       <p className="text-xs text-text-muted">
-        Click any stem to preview. Download individual WAV tracks for use in Logic Pro, Ableton, or FL Studio.
+        All stems normalized to -14 LUFS. Download individual WAVs or grab all at once for Logic Pro, Ableton, or FL Studio.
       </p>
+
       {[...ordered, ...rest].map(name => (
         <StemTrack key={name} name={name} url={stems[name]} />
       ))}
+
+      {/* ZIP download */}
+      {jobId && (
+        <button
+          onClick={downloadZip}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all hover:opacity-90 mt-1"
+          style={{ background: 'rgba(195,244,0,0.10)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.25)' }}>
+          <Archive size={13} />
+          Download All Stems (ZIP)
+        </button>
+      )}
     </div>
   )
 }

@@ -35,6 +35,11 @@ export interface LyricVariant {
   style_fidelity: number
 }
 
+export interface AudioMetadata {
+  bpm: number
+  key: string
+}
+
 export interface GenerateResult {
   lyrics: string
   theme: string
@@ -53,6 +58,7 @@ export interface GenerateResult {
   instrumental_hint: string | null
   output_mode: string
   timestamp: string
+  audio_metadata: AudioMetadata | null
 }
 
 export interface Project {
