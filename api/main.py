@@ -187,6 +187,7 @@ class SaveProjectRequest(BaseModel):
     section_mode: Optional[str] = None
     ref_lyrics: Optional[str] = None
     analysis: Optional[dict] = None
+    stem_job_id: Optional[str] = None
 
 
 # ── Chorus extraction helper ──────────────────────────────────────────────
@@ -723,6 +724,7 @@ def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
         "section_mode":     req.section_mode,
         "ref_lyrics":       req.ref_lyrics,
         "analysis":         req.analysis,
+        "stem_job_id":      req.stem_job_id,
     }
     projects.append(project)
     if len(projects) > 200:

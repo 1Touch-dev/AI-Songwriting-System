@@ -8,7 +8,7 @@ import {
   ExternalLink, Trash2, X, Play, Pause, Download,
   ChevronDown, ChevronUp, Layers, Zap,
 } from 'lucide-react'
-import { getProjects, deleteProject, audioUrl } from '@/lib/api'
+import { getProjects, deleteProject, audioUrl, BASE_URL } from '@/lib/api'
 import type { Project } from '@/lib/types'
 
 const SESSION_TOKEN_KEY = 'sonicflow_token'
@@ -260,7 +260,19 @@ function ProjectCard({
   const voiceAudio = audioUrl(p.voice_url)
   const musicAudio = audioUrl(p.music_url)
   const mixAudio   = audioUrl(p.mix_url)
-  const hasAudio   = !!(voiceAudio || musicAudio || mixAudio)
+
+  const STEM_NAMES = ['vocals', 'drums', 'bass', 'other'] as const
+  const STEM_META: Record<string, { label: string; color: string }> = {
+    vocals: { label: 'Stem — Vocals',      color: '#d277ff' },
+    drums:  { label: 'Stem — Drums',       color: '#8ff5ff' },
+    bass:   { label: 'Stem — Bass',        color: '#c3f400' },
+    other:  { label: 'Stem — Instruments', color: '#ffa502' },
+  }
+  const stemAudios = p.stem_job_id
+    ? STEM_NAMES.map(s => ({ key: s, url: `${BASE_URL}/stems/${p.stem_job_id}/audio/${s}`, ...STEM_META[s] }))
+    : []
+
+  const hasAudio = !!(voiceAudio || musicAudio || mixAudio || stemAudios.length)
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -425,6 +437,9 @@ function ProjectCard({
             {mixAudio && (
               <MiniPlayer url={mixAudio} label="Final Mix" color="#ffa502" />
             )}
+            {stemAudios.map(s => (
+              <MiniPlayer key={s.key} url={s.url} label={s.label} color={s.color} />
+            ))}
           </div>
 
           {/* Analysis preview */}

@@ -89,6 +89,7 @@ export interface Project {
   section_mode: string | null
   ref_lyrics: string | null
   analysis: Record<string, unknown> | null
+  stem_job_id: string | null
 }
 
 export type GenMode = 'Generate New' | 'Continue Story' | 'Remix Style'

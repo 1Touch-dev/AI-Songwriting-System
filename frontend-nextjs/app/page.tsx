@@ -583,6 +583,7 @@ export default function StudioPage() {
           section_mode:     state.sectionMode,
           ref_lyrics:       state.refLyrics || null,
           analysis:         res.analysis ?? null,
+          stem_job_id:      stemJobId || null,
         })
       } catch { /* non-critical */ }
 
