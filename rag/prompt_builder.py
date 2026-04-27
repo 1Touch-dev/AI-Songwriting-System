@@ -441,15 +441,16 @@ def build_prompt(
         )
 
     # ── Perspective ───────────────────────────────────────────────────────
+    gender_suffix = f" The narrator is {gender}." if gender and gender.lower() != "neutral" else ""
     if perspective_mode == "opposite":
         perspective_instruction = (
             "PERSPECTIVE: Write from the OPPOSITE emotional perspective. "
-            "If the theme implies regret, write from defiance or indifference."
+            f"If the theme implies regret, write from defiance or indifference.{gender_suffix}"
         )
     elif perspective_mode == "response":
         perspective_instruction = (
             "PERSPECTIVE: Write this as a RESPONSE to another character. "
-            "The reference lyrics were a message — you are replying in the artist's style."
+            f"The reference lyrics were a message — you are replying in the artist's style.{gender_suffix}"
         )
     else:
         perspective_instruction = (

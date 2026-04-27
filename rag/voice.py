@@ -17,8 +17,48 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_VOICE_ID    = "JBFqnCBsd6RMkjVDRZzb"   # ElevenLabs "George"
+DEFAULT_VOICE_ID    = "JBFqnCBsd6RMkjVDRZzb"   # ElevenLabs "George" (male fallback)
+DEFAULT_VOICE_ID_F  = "21m00Tcm4TlvDq8ikWAM"   # ElevenLabs "Rachel" (female fallback)
 MAX_CHARS           = 4500                        # ElevenLabs safe limit
+
+# Per-artist voice mapping — matched by vocal character (gender, age, tone)
+# Male:   George=JBFqnCBsd6RMkjVDRZzb, Adam=pNInz6obpgDQGcFmaJgB,
+#         Josh=TxGEqnHWrfWFTfGW9XjX, Antoni=ErXwobaYiN019PkySvjV, Arnold=VR6AewLTigWG4xSOukaG
+# Female: Rachel=21m00Tcm4TlvDq8ikWAM, Bella=EXAVITQu4vr4xnSDxMaL,
+#         Domi=AZnzlk1XvdvUeBnXmlld, Elli=MF3mGyEYCl7XYWbV9V6O
+_ARTIST_VOICE_MAP: dict[str, str] = {
+    "drake":             "pNInz6obpgDQGcFmaJgB",   # Adam — deep American male
+    "chris brown":       "TxGEqnHWrfWFTfGW9XjX",   # Josh — smooth American male
+    "dwayne johnson":    "VR6AewLTigWG4xSOukaG",   # Arnold — powerful male
+    "kanye west":        "pNInz6obpgDQGcFmaJgB",   # Adam
+    "jay z":             "pNInz6obpgDQGcFmaJgB",   # Adam
+    "eminem":            "VR6AewLTigWG4xSOukaG",   # Arnold — intense male
+    "the weeknd":        "TxGEqnHWrfWFTfGW9XjX",   # Josh
+    "post malone":       "ErXwobaYiN019PkySvjV",   # Antoni — laid-back male
+    "elton john":        "JBFqnCBsd6RMkjVDRZzb",   # George — British warmth
+    "john denver":       "JBFqnCBsd6RMkjVDRZzb",   # George — folk warmth
+    "ed sheeran":        "ErXwobaYiN019PkySvjV",   # Antoni — gentle male
+    "bruno mars":        "TxGEqnHWrfWFTfGW9XjX",   # Josh
+    "ariana grande":     "MF3mGyEYCl7XYWbV9V6O",   # Elli — young American female
+    "taylor swift":      "21m00Tcm4TlvDq8ikWAM",   # Rachel — warm American female
+    "selena gomez":      "EXAVITQu4vr4xnSDxMaL",   # Bella — soft American female
+    "sabrina carpenter": "MF3mGyEYCl7XYWbV9V6O",   # Elli — youthful female
+    "olivia rodrigo":    "MF3mGyEYCl7XYWbV9V6O",   # Elli
+    "billie eilish":     "AZnzlk1XvdvUeBnXmlld",   # Domi — breathy, distinctive
+    "rihanna":           "AZnzlk1XvdvUeBnXmlld",   # Domi — strong female
+    "beyonce":           "AZnzlk1XvdvUeBnXmlld",   # Domi — powerful female
+    "adele":             "EXAVITQu4vr4xnSDxMaL",   # Bella — soulful female
+    "doja cat":          "21m00Tcm4TlvDq8ikWAM",   # Rachel
+}
+
+def get_voice_id_for_artist(artist: str, gender: str = "Neutral") -> str:
+    """Return the best ElevenLabs voice ID for the given artist, with gender fallback."""
+    key = artist.lower().strip()
+    if key in _ARTIST_VOICE_MAP:
+        return _ARTIST_VOICE_MAP[key]
+    if gender.lower() == "female":
+        return DEFAULT_VOICE_ID_F
+    return DEFAULT_VOICE_ID
 OPENAI_MAX_CHARS    = 4096                        # OpenAI TTS limit per request
 RETRY_ATTEMPTS      = 3
 RETRY_DELAY_S       = 4

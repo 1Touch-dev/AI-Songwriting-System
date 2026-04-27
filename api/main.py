@@ -232,39 +232,79 @@ def _extract_chorus_from_lyrics(lyrics: str) -> str:
 def _analyze_instrumental(file_bytes: bytes, filename: str) -> str:
     """
     Return a production-grade prompt hint for the uploaded instrumental.
-    Estimates duration and builds a specific lyric-alignment instruction.
+    Uses librosa to extract real BPM and key from the audio bytes.
+    Falls back to filename heuristics if librosa is unavailable.
     """
-    ext      = Path(filename).suffix.lower()
-    size_mb  = len(file_bytes) / (1024 * 1024)
+    ext       = Path(filename).suffix.lower()
+    size_mb   = len(file_bytes) / (1024 * 1024)
     name_hint = Path(filename).stem.replace('_', ' ').replace('-', ' ')
 
     # Bitrate-based duration estimate
-    bitrate_kbps = 128 if ext == ".mp3" else 1411  # WAV ~1411kbps (44.1k/16bit/stereo)
+    bitrate_kbps = 128 if ext == ".mp3" else 1411
     est_seconds  = (size_mb * 8 * 1024) / bitrate_kbps
     est_minutes  = est_seconds / 60
 
-    # Rough energy / tempo heuristic from filename keywords
-    fname_lower = filename.lower()
-    if any(w in fname_lower for w in ("hard", "heavy", "trap", "drill", "metal", "banger")):
-        energy_hint = "high-energy, aggressive track"
-        tempo_hint  = "fast pacing, short punchy lines (4–6 words), driving rhythm"
-    elif any(w in fname_lower for w in ("slow", "sad", "chill", "lo-fi", "lofi", "ballad", "soft")):
-        energy_hint = "slow, emotional track"
-        tempo_hint  = "slow pacing, longer lines (6–9 words), drawn-out phrasing"
-    elif any(w in fname_lower for w in ("mid", "groove", "r&b", "rnb", "smooth", "vibe")):
-        energy_hint = "mid-tempo groove track"
-        tempo_hint  = "medium pacing, flowing lines (5–8 words), melodic cadence"
+    # ── Real audio analysis via librosa ──────────────────────────────────
+    detected_bpm: Optional[float] = None
+    detected_key: Optional[str]   = None
+    try:
+        import librosa
+        y, sr = librosa.load(_io.BytesIO(file_bytes), sr=None, mono=True, duration=60)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        detected_bpm = round(float(np.atleast_1d(tempo)[0]), 1)
+
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
+        best_score, detected_key = -999.0, "C major"
+        for i, name in enumerate(_KEY_NAMES):
+            maj = float(np.corrcoef(chroma, np.roll(_MAJOR_PROFILE, i))[0, 1])
+            min_ = float(np.corrcoef(chroma, np.roll(_MINOR_PROFILE, i))[0, 1])
+            if maj > best_score:
+                best_score, detected_key = maj, f"{name} major"
+            if min_ > best_score:
+                best_score, detected_key = min_, f"{name} minor"
+        print(f"[INSTRUMENTAL] Detected BPM={detected_bpm}, Key={detected_key}", flush=True)
+    except Exception as e:
+        print(f"[INSTRUMENTAL] librosa analysis failed: {e}", flush=True)
+
+    # ── Energy / tempo tier ───────────────────────────────────────────────
+    if detected_bpm:
+        if detected_bpm >= 140:
+            energy_hint = "high-energy, fast track"
+            tempo_hint  = "fast pacing, short punchy lines (4–6 words), driving rhythm"
+        elif detected_bpm >= 100:
+            energy_hint = "mid-tempo energetic track"
+            tempo_hint  = "medium pacing, flowing lines (5–8 words), melodic cadence"
+        elif detected_bpm >= 70:
+            energy_hint = "mid-tempo groove track"
+            tempo_hint  = "relaxed pacing, singable lines (5–8 words)"
+        else:
+            energy_hint = "slow, emotional track"
+            tempo_hint  = "slow pacing, longer lines (6–9 words), drawn-out phrasing"
     else:
-        energy_hint = "instrumental track"
-        tempo_hint  = "medium pacing, singable lines (5–8 words)"
+        # Filename fallback
+        fname_lower = filename.lower()
+        if any(w in fname_lower for w in ("hard", "heavy", "trap", "drill", "metal", "banger")):
+            energy_hint = "high-energy, aggressive track"
+            tempo_hint  = "fast pacing, short punchy lines (4–6 words), driving rhythm"
+        elif any(w in fname_lower for w in ("slow", "sad", "chill", "lo-fi", "lofi", "ballad", "soft")):
+            energy_hint = "slow, emotional track"
+            tempo_hint  = "slow pacing, longer lines (6–9 words), drawn-out phrasing"
+        else:
+            energy_hint = "instrumental track"
+            tempo_hint  = "medium pacing, singable lines (5–8 words)"
+
+    # ── Build prompt hint ─────────────────────────────────────────────────
+    bpm_line = f"Detected BPM: {detected_bpm}. " if detected_bpm else ""
+    key_line = f"Musical key: {detected_key}. " if detected_key else ""
 
     hint = (
-        f"The user uploaded a {ext.lstrip('.')} file: '{name_hint}' "
+        f"The user uploaded a {ext.lstrip('.')} instrumental: '{name_hint}' "
         f"(~{est_minutes:.1f} min, {energy_hint}). "
+        f"{bpm_line}{key_line}"
         f"Match the tempo, pacing, and emotional cadence of this instrumental. "
         f"{tempo_hint}. "
-        f"Ensure every lyrical line fits naturally within a consistent rhythmic grid "
-        f"suitable for recording over this track. "
+        f"Write lyrics that fit naturally within the rhythmic grid of a {detected_bpm or 'unknown'} BPM track"
+        f"{f' in {detected_key}' if detected_key else ''}. "
         f"The emotional arc of the lyrics must mirror the dynamic shape of the music."
     )
     return hint
@@ -554,7 +594,9 @@ async def generate(
     voice_error: Optional[str]  = None
     if enable_voice:
         try:
-            voice_bytes = pipeline.voice_gen.generate_voice(lyrics)
+            from rag.voice import get_voice_id_for_artist
+            _voice_id = get_voice_id_for_artist(artists[0] if artists else "", gender)
+            voice_bytes = pipeline.voice_gen.generate_voice(lyrics, voice_id=_voice_id)
             if voice_bytes and len(voice_bytes) < 1000:
                 voice_error = f"Audio too small ({len(voice_bytes)} bytes)"
                 voice_bytes = None

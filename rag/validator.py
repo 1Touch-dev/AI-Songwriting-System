@@ -301,14 +301,26 @@ Respond ONLY with the corrected [Chorus].
         except:
             return chorus
 
-    def validate_and_fix(self, lyrics: str) -> str:
-        """Full song validator pass."""
+    def validate_and_fix(self, lyrics: str, locked_chorus: str = "") -> str:
+        """Full song validator pass. Skips chorus rewriting if it matches locked_chorus."""
         if not lyrics or "[Chorus]" not in lyrics:
             return lyrics
-            
+
+        # If a chorus is locked, extract it from the generated lyrics and verify
+        # it matches before allowing the validator to touch it.
+        if locked_chorus and locked_chorus.strip():
+            locked_lines = {l.strip().lower() for l in locked_chorus.strip().splitlines() if l.strip()}
+            chorus_match = re.search(r"\[Chorus[^\]]*\]\n(.*?)(?=\n\[|\Z)", lyrics, re.S)
+            if chorus_match:
+                generated_lines = {l.strip().lower() for l in chorus_match.group(1).strip().splitlines() if l.strip()}
+                overlap = len(locked_lines & generated_lines) / max(len(locked_lines), 1)
+                if overlap >= 0.6:
+                    print(f"[VALIDATOR] Locked chorus preserved (overlap={overlap:.0%}) — skipping rewrite.", flush=True)
+                    return lyrics
+
         if self.quick_verify(lyrics):
             return lyrics
-            
+
         try:
             response = self._client.chat.completions.create(
                 model=VALIDATOR_MODEL,

@@ -112,12 +112,12 @@ Respond ONLY with valid JSON:
             return {"expanded_queries": [theme], "query_type": "emotional"}
 
     def _generate_single(
-        self, attempt_index: int, system_prompt: str, user_prompt: str, temperature: float
+        self, attempt_index: int, system_prompt: str, user_prompt: str, temperature: float,
+        locked_chorus: str = "",
     ) -> tuple[str, Optional[Exception]]:
         """Worker for concurrent generation."""
         try:
-            # slightly jitter temperature to guarantee variety across parallel runs
-            jitter_temp = min(1.0, temperature + (attempt_index * 0.05))
+            jitter_temp = min(1.0, temperature + (attempt_index * 0.15))
             response = self._client.chat.completions.create(
                 model=GENERATION_MODEL,
                 temperature=jitter_temp,
@@ -129,7 +129,7 @@ Respond ONLY with valid JSON:
             )
             lyrics = response.choices[0].message.content.strip()
             if CHORUS_VALIDATION_ENABLED and self._validator:
-                lyrics = self._validator.validate_and_fix(lyrics)
+                lyrics = self._validator.validate_and_fix(lyrics, locked_chorus=locked_chorus)
             return lyrics, None
         except Exception as exc:
             return "", exc
@@ -357,11 +357,12 @@ Respond ONLY with valid JSON:
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, num_variants)) as executor:
             futures = [
                 executor.submit(
-                    self._generate_single, 
-                    i, 
-                    system_prompt, 
-                    user_prompt + (f"\n\n{hook_variants[i % 5]}" if mode == "Hook Generator" else ""), 
-                    temperature
+                    self._generate_single,
+                    i,
+                    system_prompt,
+                    user_prompt + (f"\n\n{hook_variants[i % 5]}" if mode == "Hook Generator" else ""),
+                    temperature,
+                    locked_chorus,
                 )
                 for i in range(num_variants)
             ]
