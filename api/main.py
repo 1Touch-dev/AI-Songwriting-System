@@ -9,12 +9,15 @@ Endpoints:
   POST /chorus/extract       → { chorus, found }
   POST /stems/extract        → { job_id, status }
   GET  /stems/{job_id}       → { status, stems }
+  POST /upload-recording     → { url, duration, format }
+  GET  /audio/recordings/{filename} → audio file
   GET  /projects             → { projects }
   POST /projects             → Project
   DELETE /projects/{id}      → { deleted }
   GET  /health               → { status }
 """
 import base64
+import io as _io
 import json
 import os
 import re
@@ -22,13 +25,16 @@ import sys
 import time
 import traceback
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -41,8 +47,9 @@ PROJECTS_FILE  = ROOT / "data" / "projects.json"
 STEMS_DIR      = ROOT / "data" / "stems"
 UPLOADS_DIR    = ROOT / "data" / "uploads"
 AUDIO_DIR      = ROOT / "data" / "audio"
+RECORDINGS_DIR = ROOT / "data" / "audio" / "recordings"
 GLOBAL_ARTISTS = ROOT / "data" / "global_artists.json"
-for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR, AUDIO_DIR):
+for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR, AUDIO_DIR, RECORDINGS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 
@@ -62,6 +69,7 @@ from rag.pipeline import SongwritingPipeline, STRUCTURES
 from utils.genius_utils import search_genius_artists
 from services.stem_extractor import extract_stems_async, get_job, cleanup_old_jobs
 from services.audio_mixer import mix_vocal_with_instrumental_bytes, is_ffmpeg_available
+from services.audio_validator import validate_audio_file
 
 app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
 
@@ -108,6 +116,10 @@ class LyricVariant(BaseModel):
     lyrics: str
     style_fidelity: float
 
+class AudioMetadata(BaseModel):
+    bpm: float
+    key: str
+
 class GenerateResponse(BaseModel):
     lyrics: str
     theme: str
@@ -126,6 +138,7 @@ class GenerateResponse(BaseModel):
     instrumental_hint: Optional[str]
     output_mode: str
     timestamp: str
+    audio_metadata: Optional[AudioMetadata] = None
 
 class ChorusExtractRequest(BaseModel):
     lyrics: str
@@ -286,6 +299,28 @@ def serve_audio(filename: str):
     return FileResponse(path, media_type="audio/mpeg", filename=safe)
 
 
+@app.get("/audio/recordings/{filename}")
+def serve_recording(filename: str):
+    """Serve uploaded recording files with proper CORS headers."""
+    safe = Path(filename).name  # prevent path traversal
+    path = RECORDINGS_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Recording not found")
+    
+    # Determine media type based on extension
+    ext = path.suffix.lower()
+    media_types = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".webm": "audio/webm",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+    }
+    media_type = media_types.get(ext, "audio/mpeg")
+    
+    return FileResponse(path, media_type=media_type, filename=safe)
+
+
 @app.post("/login", response_model=LoginResponse)
 def login(req: LoginRequest):
     expected_pw = STUDIO_USERS.get(req.email.lower().strip())
@@ -356,12 +391,87 @@ async def stems_extract(
     }
 
 
+@app.post("/upload-recording")
+async def upload_recording(
+    file: UploadFile = File(...),
+    token: str = Depends(verify_token),
+):
+    """
+    Upload an audio recording for later use.
+    
+    - Accepts mp3, wav, webm, ogg, m4a formats
+    - Max size: 60MB
+    - Max duration: 8 minutes
+    - Returns URL, duration, and format metadata
+    """
+    content = await file.read()
+    
+    # Validate audio file
+    metadata = validate_audio_file(
+        file_bytes=content,
+        filename=file.filename or "recording.mp3",
+        max_size_mb=60,
+        max_duration_sec=8 * 60,
+    )
+    
+    # Generate unique filename
+    ext = Path(file.filename or "recording.mp3").suffix.lower()
+    file_id = uuid.uuid4().hex[:10]
+    filename = f"{file_id}{ext}"
+    save_path = RECORDINGS_DIR / filename
+    
+    # Save file
+    save_path.write_bytes(content)
+    print(f"[API] Recording uploaded: {filename} ({metadata['duration']}s, {metadata['size_mb']}MB)", flush=True)
+    
+    return {
+        "url": f"/audio/recordings/{filename}",
+        "duration": metadata["duration"],
+        "format": metadata["format"],
+        "size_mb": metadata["size_mb"],
+        "filename": filename,
+    }
+
+
 def _stems_from_disk(job_id: str) -> dict[str, str]:
     """Scan the job directory for WAV files — survives API restarts."""
     job_dir = STEMS_DIR / job_id
     if not job_dir.exists():
         return {}
     return {wav.stem: str(wav) for wav in job_dir.rglob("*.wav") if wav.is_file()}
+
+
+# Krumhansl-Schmuckler key profiles
+_KEY_NAMES     = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+_MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+_MINOR_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+
+def _detect_audio_metadata(audio_bytes: bytes) -> dict:
+    """Return BPM and musical key from raw audio bytes using librosa."""
+    try:
+        import librosa
+        y, sr = librosa.load(_io.BytesIO(audio_bytes), sr=None, mono=True)
+
+        # BPM
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        bpm = round(float(np.atleast_1d(tempo)[0]), 1)
+
+        # Key via chroma + Krumhansl-Schmuckler correlation
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr).mean(axis=1)
+        best_score, best_key = -999.0, "C major"
+        for i, name in enumerate(_KEY_NAMES):
+            maj = np.corrcoef(chroma, np.roll(_MAJOR_PROFILE, i))[0, 1]
+            min_ = np.corrcoef(chroma, np.roll(_MINOR_PROFILE, i))[0, 1]
+            if maj > best_score:
+                best_score, best_key = maj, f"{name} major"
+            if min_ > best_score:
+                best_score, best_key = min_, f"{name} minor"
+
+        print(f"[METADATA] BPM={bpm}  Key={best_key}", flush=True)
+        return {"bpm": bpm, "key": best_key}
+    except Exception as e:
+        print(f"[METADATA] Detection failed: {e}", flush=True)
+        return {"bpm": 0.0, "key": "Unknown"}
 
 
 @app.get("/stems/{job_id}/audio/{stem_name}")
@@ -385,6 +495,33 @@ def serve_stem_audio(job_id: str, stem_name: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Stem file missing on disk")
     return FileResponse(file_path, media_type="audio/wav", filename=f"{stem_name}.wav")
+
+
+@app.get("/stems/{job_id}/download-zip")
+def download_stems_zip(job_id: str):
+    """Stream all stems for a job as a single ZIP file.
+    No token required — job_id is a 12-char hex nonce (unguessable).
+    """
+    job = get_job(job_id)
+    stems = job.get("stems", {}) if job.get("status") == "done" else {}
+    if not stems:
+        stems = _stems_from_disk(job_id)
+    if not stems:
+        raise HTTPException(status_code=404, detail="No stems found for this job")
+
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for stem_name, file_path in stems.items():
+            p = Path(file_path)
+            if p.exists():
+                zf.write(p, f"{stem_name}.wav")
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=stems_{job_id}.zip"},
+    )
 
 
 @app.get("/stems/{job_id}")
@@ -460,24 +597,25 @@ async def generate(
 
     # ── Output mode routing ───────────────────────────────────────────────
     # draft       → ElevenLabs voice only; mix only on explicit enable_mix=True
-    # music_demo  → Suno full song only; no voice, no mix
-    # producer    → ElevenLabs voice as reference; no Suno; never auto-mix
+    # music_demo  → ElevenLabs timing guide + Suno full song (both saved to library)
+    # producer    → ElevenLabs timing guide + Suno full song (both saved); never auto-mix
     output_mode  = req_data.get("output_mode", "draft")  # draft | music_demo | producer
     enable_mix   = bool(req_data.get("enable_mix", False))
 
-    # vocal_source: how producer mode generates the vocal track
-    #   suno_singing  → Suno full song (real musical vocals); user extracts stems in DAW
-    #   reference_tts → ElevenLabs speech (timing/rhythm guide only)
+    # vocal_source: how producer/demo mode generates the vocal track
+    #   suno_singing  → Suno full song (real musical vocals) + ElevenLabs timing guide
+    #   reference_tts → ElevenLabs speech only (timing/rhythm guide)
     vocal_source = req_data.get("vocal_source", "suno_singing")
 
     if output_mode == "music_demo":
-        enable_voice = False
+        # Both: ElevenLabs timing guide + Suno full song — both persisted to library
+        enable_voice = True
         enable_music = True
         enable_mix   = False
     elif output_mode == "producer":
         if vocal_source == "suno_singing":
-            # Suno generates a complete song; producer extracts vocal stem themselves
-            enable_voice = False
+            # Both: ElevenLabs timing guide + Suno full song; producer stems in DAW
+            enable_voice = True
             enable_music = True
         else:  # reference_tts
             enable_voice = True
@@ -590,6 +728,11 @@ async def generate(
             music_error = str(e)
             print(f"[API] Music error: {e}")
 
+    # ── Step 3b: Audio metadata (BPM + key) from Suno output ─────────────
+    audio_metadata: Optional[dict] = None
+    if music_bytes:
+        audio_metadata = _detect_audio_metadata(music_bytes)
+
     # ── Step 4: Audio mixing (explicit request only) ──────────────────────
     # Mixing is NEVER automatic. Only triggered when:
     #   - output_mode == "draft"
@@ -655,6 +798,7 @@ async def generate(
         instrumental_hint=instrumental_hint or None,
         output_mode=output_mode,
         timestamp=datetime.now().strftime("%H:%M:%S"),
+        audio_metadata=AudioMetadata(**audio_metadata) if audio_metadata else None,
     )
 
 

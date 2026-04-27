@@ -161,3 +161,18 @@ export async function getStemStatus(
   })
   return res.data
 }
+
+export async function uploadRecording(
+  audioBlob: Blob,
+  token: string
+): Promise<{ url: string; filename: string; size_kb: number }> {
+  const form = new FormData()
+  const filename = `recording_${Date.now()}.webm`
+  form.append('file', audioBlob, filename)
+  
+  const res = await client.post('/upload-recording', form, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 60_000,
+  })
+  return res.data
+}

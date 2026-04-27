@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
+import AudioRecorder from '@/components/AudioRecorder'
 import GenerationStatus, { PipelineStep } from '@/components/GenerationStatus'
 import StemPlayer from '@/components/StemPlayer'
 import type {
@@ -98,10 +99,12 @@ function buildSteps(
   producerVocalSource: ProducerVocalSource,
 ): PipelineStep[] {
   const producerUsesSuno = outputMode === 'producer' && producerVocalSource === 'suno_singing'
+  const generatesVoice = outputMode === 'draft' || outputMode === 'music_demo' || producerUsesSuno || (outputMode === 'producer' && producerVocalSource === 'reference_tts')
+  const generatesMusic = outputMode === 'music_demo' || producerUsesSuno
   const allSteps = [
     { id: 'lyrics',   label: 'Synthesizing Lyrics',                  show: true },
-    { id: 'voice',    label: 'Timing Guide Vocal (ElevenLabs)',       show: outputMode === 'draft' || (outputMode === 'producer' && !producerUsesSuno) },
-    { id: 'music',    label: outputMode === 'producer' ? 'AI Song with Vocals (Suno)' : 'Full Song (Suno AI)', show: outputMode === 'music_demo' || producerUsesSuno },
+    { id: 'voice',    label: 'Timing Guide Vocal (ElevenLabs)',       show: generatesVoice },
+    { id: 'music',    label: outputMode === 'producer' ? 'AI Song with Vocals (Suno)' : 'Full Song (Suno AI)', show: generatesMusic },
     { id: 'mix',      label: 'Quick Demo Mix',                        show: outputMode === 'draft' },
     { id: 'analysis', label: 'AI Analysis',                           show: true },
   ]
@@ -350,6 +353,11 @@ export default function StudioPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  // Audio Recording
+  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null)
+  const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null)
+  const [uploadingRecording, setUploadingRecording] = useState(false)
+
   // Remix mode
   const [detectedChorus, setDetectedChorus] = useState('')
   const [detectingChorus, setDetectingChorus] = useState(false)
@@ -366,6 +374,15 @@ export default function StudioPage() {
 
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
+
+  // Cleanup recording preview URL on unmount
+  useEffect(() => {
+    return () => {
+      if (recordingPreviewUrl) {
+        URL.revokeObjectURL(recordingPreviewUrl)
+      }
+    }
+  }, [recordingPreviewUrl])
 
   // ── Auth guard ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -502,7 +519,8 @@ export default function StudioPage() {
 
       const failed = new Set<string>()
       const expectsVoice = state.outputMode === 'draft' ||
-        (state.outputMode === 'producer' && state.producerVocalSource === 'reference_tts')
+        state.outputMode === 'music_demo' ||
+        state.outputMode === 'producer'
       const expectsMusic = state.outputMode === 'music_demo' ||
         (state.outputMode === 'producer' && state.producerVocalSource === 'suno_singing')
       if (expectsVoice && !res.voice_audio_b64) failed.add('voice')
@@ -986,6 +1004,102 @@ export default function StudioPage() {
                   </label>
                 )}
 
+                {/* Audio Recording */}
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
+                <div>
+                  <label className="label flex items-center gap-1.5 mb-2">
+                    <Mic2 size={11} /> Record Audio
+                  </label>
+                  <AudioRecorder
+                    onRecordingComplete={(blob) => {
+                      setRecordedAudio(blob)
+                      if (recordingPreviewUrl) URL.revokeObjectURL(recordingPreviewUrl)
+                      const url = URL.createObjectURL(blob)
+                      setRecordingPreviewUrl(url)
+                      toast.success('Recording saved! Review and upload below.')
+                    }}
+                    accentColor="#d277ff"
+                  />
+                  
+                  {recordedAudio && recordingPreviewUrl && (
+                    <div className="mt-3 space-y-2">
+                      <div className="glass-panel p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold" style={{ color: '#d277ff' }}>
+                            Recording Preview
+                          </span>
+                          <button
+                            onClick={() => {
+                              setRecordedAudio(null)
+                              if (recordingPreviewUrl) {
+                                URL.revokeObjectURL(recordingPreviewUrl)
+                                setRecordingPreviewUrl(null)
+                              }
+                            }}
+                            className="text-xs text-text-muted hover:text-error transition-colors"
+                          >
+                            <Trash2 size={12} className="inline mr-1" />
+                            Delete
+                          </button>
+                        </div>
+                        <audio
+                          src={recordingPreviewUrl}
+                          controls
+                          className="w-full h-8"
+                          style={{ 
+                            accentColor: '#d277ff',
+                            background: 'rgba(210,119,255,0.1)',
+                            borderRadius: '8px'
+                          }}
+                        />
+                      </div>
+                      
+                      <button
+                        onClick={async () => {
+                          if (!recordedAudio || !token) return
+                          setUploadingRecording(true)
+                          try {
+                            const { uploadRecording } = await import('@/lib/api')
+                            const result = await uploadRecording(recordedAudio, token)
+                            toast.success('Recording uploaded successfully!')
+                            console.log('Uploaded recording:', result)
+                            // Clear recording after upload
+                            setRecordedAudio(null)
+                            if (recordingPreviewUrl) {
+                              URL.revokeObjectURL(recordingPreviewUrl)
+                              setRecordingPreviewUrl(null)
+                            }
+                          } catch (err) {
+                            console.error('Upload failed:', err)
+                            toast.error('Failed to upload recording')
+                          } finally {
+                            setUploadingRecording(false)
+                          }
+                        }}
+                        disabled={uploadingRecording}
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        style={{
+                          background: 'linear-gradient(135deg, #d277ff 0%, #b84dff 100%)',
+                          color: '#fff',
+                          boxShadow: '0 4px 16px rgba(210,119,255,0.3)'
+                        }}
+                      >
+                        {uploadingRecording ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload size={14} />
+                            Upload Recording
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Stem Extraction */}
                 <div style={{ height: '1px', background: 'rgba(255,255,255,0.05)' }} />
                 <div>
@@ -1273,7 +1387,7 @@ export default function StudioPage() {
             {hasStemsReady && !result && (
               <div className="glass-panel p-5 space-y-3">
                 <h3 className="section-title">🎚️ Extracted Stems</h3>
-                <StemPlayer stems={stemUrls} />
+                <StemPlayer stems={stemUrls} jobId={stemJobId} />
               </div>
             )}
 
@@ -1557,7 +1671,7 @@ export default function StudioPage() {
                       <div className="space-y-3">
                         <h3 className="section-title">Extracted Stems</h3>
                         {hasStemsReady
-                          ? <StemPlayer stems={stemUrls} />
+                          ? <StemPlayer stems={stemUrls} jobId={stemJobId} audioMetadata={result?.audio_metadata} />
                           : (
                             <p className="text-text-muted text-sm">
                               {stemStatus === 'processing'
