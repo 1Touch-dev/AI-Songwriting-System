@@ -472,14 +472,13 @@ async def generate(
     vocal_source = req_data.get("vocal_source", "suno_singing")
 
     if output_mode == "music_demo":
-        enable_voice = False
-        enable_music = True
+        enable_voice = True   # ElevenLabs timing guide
+        enable_music = True   # Suno full song
         enable_mix   = False
     elif output_mode == "producer":
         if vocal_source == "suno_singing":
-            # Suno generates a complete song; producer extracts vocal stem themselves
-            enable_voice = False
-            enable_music = True
+            enable_voice = True   # ElevenLabs timing guide
+            enable_music = True   # Suno full song
         else:  # reference_tts
             enable_voice = True
             enable_music = False

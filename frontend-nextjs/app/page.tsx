@@ -522,6 +522,7 @@ export default function StudioPage() {
       toast.success('Production complete!')
 
       // Auto-extract stems when Producer + AI Singing — skip the manual re-upload step
+      let autoStemJobId: string | null = null
       if (
         state.outputMode === 'producer' &&
         state.producerVocalSource === 'suno_singing' &&
@@ -540,6 +541,7 @@ export default function StudioPage() {
           toast('Stem extraction started automatically — see Stems tab in 2–8 min', { icon: '🎚️' })
           try {
             const { job_id } = await extractStems(token, autoFile)
+            autoStemJobId = job_id   // capture locally — React state hasn't updated yet
             setStemJobId(job_id)
             setStemStatus('processing')
           } catch {
@@ -583,7 +585,7 @@ export default function StudioPage() {
           section_mode:     state.sectionMode,
           ref_lyrics:       state.refLyrics || null,
           analysis:         res.analysis ?? null,
-          stem_job_id:      stemJobId || null,
+          stem_job_id:      autoStemJobId || stemJobId || null,
         })
       } catch { /* non-critical */ }
 
