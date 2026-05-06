@@ -25,6 +25,7 @@ STEMS_DIR.mkdir(parents=True, exist_ok=True)
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+_demucs_sem = threading.Semaphore(1)  # only one demucs process at a time (RAM constraint)
 
 DEFAULT_MODEL   = "htdemucs"
 STEM_MAX_AGE_S  = 4 * 3600  # auto-delete stems older than 4 hours
@@ -79,6 +80,10 @@ def cleanup_old_jobs(max_age_seconds: int = STEM_MAX_AGE_S) -> int:
 
 
 def _run_extraction(job_id: str, file_path: str, job_dir: str):
+    acquired = _demucs_sem.acquire(timeout=1800)  # wait up to 30 min for a slot
+    if not acquired:
+        _update_job(job_id, status="failed", error="Timed out waiting for an available extraction slot")
+        return
     try:
         _check_disk_space(min_gb=1.5)
 
@@ -135,6 +140,8 @@ def _run_extraction(job_id: str, file_path: str, job_dir: str):
         print(f"[STEMS] Job {job_id}: FAILED — {err}", flush=True)
         traceback.print_exc()
         _update_job(job_id, status="failed", error=err)
+    finally:
+        _demucs_sem.release()
 
 
 def _wav_to_mp3(wav_path: str, mp3_path: str, bitrate: str = "256k") -> bool:
