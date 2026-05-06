@@ -398,11 +398,15 @@ async def stems_extract(
 
 
 def _stems_from_disk(job_id: str) -> dict[str, str]:
-    """Scan the job directory for WAV files — survives API restarts."""
+    """Scan job directory for MP3/WAV stems — survives API restarts."""
     job_dir = STEMS_DIR / job_id
     if not job_dir.exists():
         return {}
-    return {wav.stem: str(wav) for wav in job_dir.rglob("*.wav") if wav.is_file()}
+    stems: dict[str, str] = {}
+    for f in job_dir.rglob("*"):
+        if f.is_file() and f.suffix in (".mp3", ".wav"):
+            stems[f.stem] = str(f)
+    return stems
 
 
 @app.get("/stems/{job_id}/audio/{stem_name}")
@@ -425,7 +429,9 @@ def serve_stem_audio(job_id: str, stem_name: str):
     file_path = Path(stems[stem_name])
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Stem file missing on disk")
-    return FileResponse(file_path, media_type="audio/wav", filename=f"{stem_name}.wav")
+    media_type = "audio/mpeg" if file_path.suffix == ".mp3" else "audio/wav"
+    filename   = f"{stem_name}{file_path.suffix}"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
 
 
 @app.get("/stems/{job_id}")

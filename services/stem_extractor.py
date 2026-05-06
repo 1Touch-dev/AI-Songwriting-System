@@ -3,7 +3,7 @@ stem_extractor.py — Audio stem separation using Demucs (Meta AI).
 
 Model : htdemucs  (drums / bass / other / vocals)
 Mode  : background-threaded job with polling
-Output: WAV files on disk, served as static files via FastAPI
+Output: MP3 files on disk (converted from WAV to save ~10x disk space)
 
 Uses subprocess `python -m demucs` for compatibility across demucs versions.
 """
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+import shutil
 import subprocess
 import time
 import uuid
@@ -25,7 +26,8 @@ STEMS_DIR.mkdir(parents=True, exist_ok=True)
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
-DEFAULT_MODEL = "htdemucs"
+DEFAULT_MODEL   = "htdemucs"
+STEM_MAX_AGE_S  = 4 * 3600  # auto-delete stems older than 4 hours
 
 
 def extract_stems_async(file_path: str) -> str:
@@ -51,21 +53,35 @@ def get_job(job_id: str) -> dict:
         return dict(_jobs.get(job_id, {"status": "not_found"}))
 
 
-def cleanup_old_jobs(max_age_seconds: int = 3600) -> int:
+def cleanup_old_jobs(max_age_seconds: int = STEM_MAX_AGE_S) -> int:
     cutoff = time.time() - max_age_seconds
+    removed = 0
     with _jobs_lock:
         stale = [jid for jid, j in _jobs.items() if j.get("started", 0) < cutoff]
         for jid in stale:
             job_dir = Path(_jobs[jid].get("job_dir", ""))
             if job_dir.exists():
-                import shutil
                 shutil.rmtree(job_dir, ignore_errors=True)
             del _jobs[jid]
-    return len(stale)
+            removed += 1
+
+    # Also sweep disk for orphaned stem dirs not tracked in memory
+    try:
+        cutoff_disk = time.time() - max_age_seconds
+        for stem_dir in STEMS_DIR.iterdir():
+            if stem_dir.is_dir() and stem_dir.stat().st_mtime < cutoff_disk:
+                shutil.rmtree(stem_dir, ignore_errors=True)
+                removed += 1
+    except Exception:
+        pass
+
+    return removed
 
 
 def _run_extraction(job_id: str, file_path: str, job_dir: str):
     try:
+        _check_disk_space(min_gb=1.5)
+
         print(f"[STEMS] Job {job_id}: running demucs on {file_path}...", flush=True)
         cmd = [
             sys.executable, "-m", "demucs",
@@ -82,21 +98,35 @@ def _run_extraction(job_id: str, file_path: str, job_dir: str):
         if not stem_dir.exists():
             stem_dir = Path(job_dir) / audio_name
 
-        stems: dict[str, str] = {}
+        wav_stems: dict[str, str] = {}
         for wav in stem_dir.glob("*.wav"):
-            stems[wav.stem] = str(wav)
+            wav_stems[wav.stem] = str(wav)
             print(f"[STEMS] Job {job_id}: found {wav.name}", flush=True)
 
-        if not stems:
+        if not wav_stems:
             raise RuntimeError(f"No WAV files found under {stem_dir}")
 
-        # Normalize all stems to -14 LUFS before marking job done
-        for stem_name, stem_path in stems.items():
-            print(f"[STEMS] Job {job_id}: normalizing {stem_name}.wav...", flush=True)
-            _normalize_loudness(stem_path)
+        # Normalize loudness then convert WAV → MP3 (saves ~10x disk space)
+        mp3_stems: dict[str, str] = {}
+        for stem_name, wav_path in wav_stems.items():
+            print(f"[STEMS] Job {job_id}: encoding {stem_name} → MP3...", flush=True)
+            mp3_path = wav_path.replace(".wav", ".mp3")
+            ok = _wav_to_mp3(wav_path, mp3_path)
+            if ok:
+                mp3_stems[stem_name] = mp3_path
+                try:
+                    os.remove(wav_path)
+                except OSError:
+                    pass
+            else:
+                # Keep WAV as fallback if ffmpeg MP3 conversion fails
+                mp3_stems[stem_name] = wav_path
 
-        _update_job(job_id, status="done", stems=stems, completed=time.time())
-        print(f"[STEMS] Job {job_id}: done — {list(stems.keys())}", flush=True)
+        _update_job(job_id, status="done", stems=mp3_stems, completed=time.time())
+        print(f"[STEMS] Job {job_id}: done — {list(mp3_stems.keys())}", flush=True)
+
+        # Async cleanup of old jobs to keep disk healthy
+        threading.Thread(target=cleanup_old_jobs, daemon=True).start()
 
     except subprocess.TimeoutExpired:
         _update_job(job_id, status="failed", error="Demucs timed out after 10 minutes")
@@ -107,29 +137,42 @@ def _run_extraction(job_id: str, file_path: str, job_dir: str):
         _update_job(job_id, status="failed", error=err)
 
 
-def _normalize_loudness(wav_path: str) -> None:
-    """Apply ffmpeg loudnorm (I=-14 LUFS, LRA=11, TP=-1) to a WAV in-place."""
-    tmp = wav_path + ".norm.wav"
+def _wav_to_mp3(wav_path: str, mp3_path: str, bitrate: str = "256k") -> bool:
+    """Convert WAV → MP3 with loudness normalization via ffmpeg. Returns True on success."""
     try:
         result = subprocess.run(
             [
                 "ffmpeg", "-y", "-i", wav_path,
                 "-af", "loudnorm=I=-14:LRA=11:TP=-1",
-                tmp,
+                "-codec:a", "libmp3lame", "-b:a", bitrate,
+                mp3_path,
             ],
             capture_output=True,
-            timeout=120,
+            timeout=180,
         )
-        if result.returncode == 0:
-            os.replace(tmp, wav_path)
-        else:
-            print(f"[STEMS] loudnorm failed on {wav_path}: {result.stderr[-200:]}", flush=True)
-            if os.path.exists(tmp):
-                os.remove(tmp)
+        if result.returncode == 0 and Path(mp3_path).exists():
+            return True
+        print(f"[STEMS] MP3 encode failed for {wav_path}: {result.stderr[-200:]}", flush=True)
+        return False
     except Exception as e:
-        print(f"[STEMS] loudnorm error on {wav_path}: {e}", flush=True)
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        print(f"[STEMS] MP3 encode error for {wav_path}: {e}", flush=True)
+        return False
+
+
+def _check_disk_space(min_gb: float = 1.5) -> None:
+    """Raise if free disk space is below threshold, after attempting cleanup."""
+    stat = shutil.disk_usage(str(STEMS_DIR))
+    free_gb = stat.free / (1024 ** 3)
+    if free_gb < min_gb:
+        print(f"[STEMS] Low disk ({free_gb:.1f} GB free) — running cleanup...", flush=True)
+        cleanup_old_jobs(max_age_seconds=1800)  # aggressively clean jobs > 30 min
+        stat = shutil.disk_usage(str(STEMS_DIR))
+        free_gb = stat.free / (1024 ** 3)
+        if free_gb < 0.5:
+            raise RuntimeError(
+                f"Insufficient disk space ({free_gb:.1f} GB free). "
+                "Please free up space on the server."
+            )
 
 
 def _update_job(job_id: str, **kwargs):
