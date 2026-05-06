@@ -440,8 +440,11 @@ def stems_status(job_id: str, token: str = Depends(verify_token)):
         else:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    ec2_ip   = os.getenv("EC2_PUBLIC_IP", "localhost")
-    api_base = f"http://{ec2_ip}:8000"
+    api_base = os.getenv("API_BASE_URL") or (
+        f"https://{os.getenv('API_DOMAIN')}"
+        if os.getenv("API_DOMAIN")
+        else f"http://{os.getenv('EC2_PUBLIC_IP', 'localhost')}:8000"
+    )
 
     stem_urls: dict[str, str] = {}
     if job.get("status") == "done":

@@ -14,11 +14,11 @@ applications:
             # Set NEXT_PUBLIC_API_URL: use Amplify Console value, or change DEFAULT_API_URL below.
             # Must create .env.production AND export in same shell as "npm run build" so Next.js sees it.
             - |
-              DEFAULT_BACKEND_API_URL="https://api.dummyy.shop"
-              export NEXT_PUBLIC_BACKEND_API_URL="${NEXT_PUBLIC_BACKEND_API_URL:-$DEFAULT_BACKEND_API_URL}"
-              echo "NEXT_PUBLIC_BACKEND_API_URL=$NEXT_PUBLIC_BACKEND_API_URL" > .env.production
-              env | grep -E '^NEXT_PUBLIC_' | grep -v '^NEXT_PUBLIC_BACKEND_API_URL=' >> .env.production 2>/dev/null || true
-              echo "Build using API URL: $NEXT_PUBLIC_BACKEND_API_URL"
+              DEFAULT_API_URL="https://api.dummyy.shop"
+              export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-$DEFAULT_API_URL}"
+              echo "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" > .env.production
+              env | grep -E '^NEXT_PUBLIC_' | grep -v '^NEXT_PUBLIC_API_URL=' >> .env.production 2>/dev/null || true
+              echo "Build using API URL: $NEXT_PUBLIC_API_URL"
               npm run build
             - echo "Build completed successfully"
       artifacts:
