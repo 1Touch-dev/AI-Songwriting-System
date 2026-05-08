@@ -551,6 +551,19 @@ async def generate(
 
     lyrics: str = res.get("lyrics", "")
 
+    # ── Post-process: force-inject locked chorus verbatim ─────────────────
+    if locked_chorus and "[Chorus]" in lyrics:
+        import re as _re
+        def _replace_chorus(m):
+            return f"[Chorus]\n{locked_chorus.strip()}"
+        lyrics = _re.sub(
+            r"\[Chorus[^\]]*\]\n.*?(?=\n\[|\Z)",
+            _replace_chorus,
+            lyrics,
+            flags=_re.DOTALL,
+        )
+        print("[API] Locked chorus force-injected into all [Chorus] sections.", flush=True)
+
     # ── Step 2: Voice synthesis ───────────────────────────────────────────
     voice_bytes: Optional[bytes] = None
     voice_error: Optional[str]  = None
