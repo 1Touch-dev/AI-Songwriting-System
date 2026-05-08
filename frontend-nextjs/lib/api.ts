@@ -162,3 +162,110 @@ export async function getStemStatus(
   })
   return res.data
 }
+
+// ── Intelligence Layer API ────────────────────────────────────────────────────
+
+export async function analyzeTrack(
+  token: string,
+  file: File,
+): Promise<import('./types').AudioAnalysisResult> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const res = await client.post('/analyze-track', form, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 60_000,
+  })
+  return res.data
+}
+
+export async function getGenres(token: string): Promise<import('./types').GenreProfile[]> {
+  const res = await client.get('/genres', {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 5_000,
+  })
+  return res.data.genres ?? []
+}
+
+export async function blendGenres(
+  token: string,
+  primary: string,
+  secondary: string,
+  weight: number,
+) {
+  const res = await client.post('/blend-genres', { primary, secondary, weight }, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 5_000,
+  })
+  return res.data
+}
+
+export async function extractCadence(
+  token: string,
+  lyrics: string,
+): Promise<import('./types').CadenceProfile> {
+  const res = await client.post('/extract-cadence', { lyrics }, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10_000,
+  })
+  return res.data
+}
+
+export async function generateRemixVariants(
+  token: string,
+  params: {
+    locked_chorus: string
+    original_lyrics: string
+    theme: string
+    artists: string[]
+    target_genres: string[]
+    bars: number
+    language: string
+    producer_controls?: import('./types').ProducerControls
+  },
+): Promise<{ variants: import('./types').RemixVariant[]; count: number }> {
+  const res = await client.post('/generate-variants', params, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 300_000,
+  })
+  return res.data
+}
+
+export async function downloadDAWSession(
+  token: string,
+  params: {
+    title: string
+    artist: string
+    theme: string
+    lyrics: string
+    language?: string
+    bpm?: number
+    key?: string
+    bars?: number
+    darkness?: number
+    chords?: string[]
+    voice_audio_b64?: string | null
+    music_audio_b64?: string | null
+    mix_audio_b64?: string | null
+  },
+): Promise<Blob> {
+  const res = await client.post('/generate-daw-session', params, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 60_000,
+    responseType: 'blob',
+  })
+  return res.data
+}
+
+export async function analyseProduction(
+  token: string,
+  lyrics: string,
+  theme: string,
+  artists: string[],
+  useLlm = true,
+): Promise<import('./types').ProductionAnalysis> {
+  const res = await client.post('/analyse-production',
+    { lyrics, theme, artists, use_llm: useLlm },
+    { headers: { Authorization: `Bearer ${token}` }, timeout: 30_000 },
+  )
+  return res.data
+}

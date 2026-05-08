@@ -339,6 +339,10 @@ def build_prompt(
     chorus_strict: bool = False,     # False = natural artist style, True = 3-line strict
     producer_mode: bool = False,     # True = structure/rhyme/tempo emphasis
     instrumental_hint: str = "",     # vibe hint from uploaded instrumental
+    # Intelligence Layer additions
+    cadence_constraints: str = "",   # from services/cadence_analysis
+    genre_tags: str = "",            # from services/genre_engine
+    producer_controls_desc: str = "", # from ProducerControls.describe()
 ) -> tuple[str, str]:
     """
     Build (system_prompt, user_prompt) for V4 Product Layer.
@@ -480,6 +484,17 @@ def build_prompt(
             f"The lyrics must feel like they were written FOR this specific track.\n"
         )
 
+    # ── Intelligence Layer blocks ─────────────────────────────────────────
+    cadence_block = f"\n{cadence_constraints}\n" if cadence_constraints else ""
+    genre_block = (
+        f"\nGENRE DIRECTION:\nTarget genre tags for Suno and production: {genre_tags}\n"
+        f"Align lyric density, vocabulary, and cadence to this genre feel.\n"
+    ) if genre_tags else ""
+    controls_block = (
+        f"\nPRODUCER CONTROLS:\n{producer_controls_desc}\n"
+        f"Let these controls shape tone, vocabulary intensity, and emotional temperature.\n"
+    ) if producer_controls_desc else ""
+
     # ── Non-English artist style note ────────────────────────────────────
     non_english_style_note = ""
     if language.lower() != "english":
@@ -496,6 +511,9 @@ def build_prompt(
         f"{lang_instruction}\n"
         f"{non_english_style_note}"
         f"{inst_block}"
+        f"{genre_block}"
+        f"{controls_block}"
+        f"{cadence_block}"
         f"{mode_instruction}\n"
         f"{perspective_instruction}\n"
         f"LENGTH CONSTRAINT: TOTAL lyrical lines = exactly {bars}. "

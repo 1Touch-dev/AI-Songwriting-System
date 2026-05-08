@@ -125,3 +125,109 @@ export interface StudioState {
 
 // Global artist data from /global-artists
 export type GlobalArtists = Record<string, Record<string, string[]>>
+
+// ── Intelligence Layer types ──────────────────────────────────────────────────
+
+export interface AudioAnalysisResult {
+  bpm: number
+  bpm_confidence: number
+  tempo_variation: string
+  key: string
+  root: string
+  mode: string
+  key_confidence: number
+  chords: string[]
+  energy_intensity: string
+  dynamic_range_db: number
+  section_energies: number[]
+  onset_density: number
+  syllable_density: number
+  flow_descriptors: string[]
+  stress_pattern: string
+  detected_sections: string[]
+  total_duration_s: number
+  prompt_hint: string
+  suno_tags: string
+  analysis_latency_ms: number
+  error: string | null
+}
+
+export interface GenreProfile {
+  name: string
+  tempo_range: [number, number]
+  groove: string
+  instrumentation: string[]
+  energy_curve: string
+  vocal_style: string
+  prompt_tokens: string[]
+  darkness: number
+  melodicness: number
+  aggression: number
+  atmosphere: number
+  groove_density: number
+}
+
+export interface ProducerControls {
+  darkness: number
+  melodicness: number
+  aggression: number
+  atmosphere: number
+  groove_density: number
+}
+
+export interface RemixVariant {
+  genre: string
+  lyrics: string
+  locked_chorus: string
+  suno_tags: string
+  style_notes: string
+  instrumentation: string[]
+  bpm_target: number
+  cadence_match_score: number
+}
+
+export interface CadenceProfile {
+  rhyme_scheme: string
+  rhyme_density: number
+  avg_words_per_line: number
+  avg_syllables_per_line: number
+  line_length_pattern: string
+  flow_density: string
+  stress_style: string
+  phrase_momentum: string
+  cadence_descriptors: string[]
+  constraint_block: string
+}
+
+export interface ProductionAnalysis {
+  hook: {
+    score: number
+    replayability: number
+    strengths: string[]
+    weaknesses: string[]
+    suggested_rewrites: string[]
+  }
+  arrangement: {
+    section_balance: Record<string, number>
+    energy_arc: string
+    is_chorus_heavy: boolean
+    is_verse_heavy: boolean
+    suggestions: string[]
+  }
+  emotional_arc: {
+    detected_tone: string
+    journey: string[]
+    tension_points: string[]
+    resolution: string
+    coherence_score: number
+  }
+  remix_suggestions: Array<{
+    genre: string
+    rationale: string
+    bpm_shift: string
+    key_suggestion: string
+  }>
+  overall_score: number
+  producer_notes: string[]
+  llm_analysis: Record<string, unknown> | null
+}
