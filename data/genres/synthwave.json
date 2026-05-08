@@ -1,0 +1,10 @@
+{
+  "name": "Synthwave",
+  "tempo_range": [90, 120],
+  "groove": "gated reverb drums, arpeggiated synths, driving bassline",
+  "instrumentation": ["analog synthesizers", "gated snare", "bass synth", "pad chords", "lead synth"],
+  "energy_curve": "nostalgic 80s feel, steady groove with synth builds",
+  "vocal_style": "breathy retro vocals, vocoder effects, dream-pop sensibility",
+  "prompt_tokens": ["synthwave", "retrowave", "80s nostalgia", "neon aesthetic", "Kavinsky style"],
+  "darkness": 0.4, "melodicness": 0.8, "aggression": 0.2, "atmosphere": 0.9, "groove_density": 0.6
+}

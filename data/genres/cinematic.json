@@ -1,0 +1,10 @@
+{
+  "name": "Cinematic",
+  "tempo_range": [60, 90],
+  "groove": "orchestral swell, dramatic pauses",
+  "instrumentation": ["full orchestra", "choir", "cello", "French horn", "piano", "epic percussion"],
+  "energy_curve": "quiet tension → emotional crescendo → resolution",
+  "vocal_style": "operatic, dramatic storytelling, powerful sustained notes",
+  "prompt_tokens": ["cinematic", "orchestral", "epic score", "Hans Zimmer style", "dramatic anthem"],
+  "darkness": 0.5, "melodicness": 0.9, "aggression": 0.3, "atmosphere": 1.0, "groove_density": 0.4
+}

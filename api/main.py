@@ -38,7 +38,6 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -141,6 +140,7 @@ class GenerateResponse(BaseModel):
     instrumental_hint: Optional[str]
     output_mode: str
     timestamp: str
+    chorus_preserved: Optional[bool] = None
 
 class ChorusExtractRequest(BaseModel):
     lyrics: str
@@ -635,6 +635,17 @@ async def generate(
 
     latency_ms = (time.time() - t0) * 1000
 
+    # ── Determine chorus_preserved ────────────────────────────────────────
+    chorus_preserved: Optional[bool] = None
+    if locked_chorus:
+        # Check if every locked chorus line appears verbatim in the generated lyrics
+        locked_lines = [l.strip() for l in locked_chorus.strip().splitlines() if l.strip()]
+        if locked_lines:
+            all_present = all(line in lyrics for line in locked_lines)
+            chorus_preserved = all_present
+            print(f"[API] chorus_preserved={chorus_preserved} "
+                  f"({len(locked_lines)} locked lines checked)", flush=True)
+
     def to_b64(b: Optional[bytes]) -> Optional[str]:
         return base64.b64encode(b).decode() if b else None
 
@@ -659,6 +670,7 @@ async def generate(
         instrumental_hint=instrumental_hint or None,
         output_mode=output_mode,
         timestamp=datetime.now().strftime("%H:%M:%S"),
+        chorus_preserved=chorus_preserved,
     )
 
 

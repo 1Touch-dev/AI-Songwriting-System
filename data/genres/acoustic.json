@@ -1,0 +1,10 @@
+{
+  "name": "Acoustic",
+  "tempo_range": [60, 100],
+  "groove": "fingerpicked guitar, natural dynamics, room sound",
+  "instrumentation": ["acoustic guitar", "piano", "upright bass", "brushed drums", "strings"],
+  "energy_curve": "intimate and vulnerable, dynamic storytelling",
+  "vocal_style": "raw emotional delivery, minimal processing, storytelling focus",
+  "prompt_tokens": ["acoustic", "singer-songwriter", "folk", "intimate", "unplugged"],
+  "darkness": 0.3, "melodicness": 0.9, "aggression": 0.1, "atmosphere": 0.7, "groove_density": 0.3
+}

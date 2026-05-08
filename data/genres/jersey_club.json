@@ -1,0 +1,10 @@
+{
+  "name": "Jersey Club",
+  "tempo_range": [145, 160],
+  "groove": "boomerang kick patterns, tight hi-hat rolls, syncopated claps",
+  "instrumentation": ["chopped samples", "boomerang kick", "clap patterns", "bass drops"],
+  "energy_curve": "relentless energy, peak-hour dance floor momentum",
+  "vocal_style": "rapid-fire ad-libs, chopped vocal samples, hype energy",
+  "prompt_tokens": ["Jersey Club", "club music", "dance floor", "NJ bounce", "chopped vocals"],
+  "darkness": 0.3, "melodicness": 0.4, "aggression": 0.6, "atmosphere": 0.5, "groove_density": 1.0
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Punjabi",
+  "tempo_range": [95, 130],
+  "groove": "dhol percussion, bhangra rhythms, modern trap elements",
+  "instrumentation": ["dhol", "tumbi", "harmonium", "trap 808s", "brass"],
+  "energy_curve": "celebratory energy, wedding-ready peaks",
+  "vocal_style": "Punjabi lyrics, powerful masculine vocals, celebratory anthems",
+  "prompt_tokens": ["Punjabi music", "bhangra", "dhol beats", "desi vibes", "AP Dhillon style"],
+  "darkness": 0.2, "melodicness": 0.7, "aggression": 0.5, "atmosphere": 0.6, "groove_density": 0.9
+}

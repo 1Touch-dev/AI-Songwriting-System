@@ -1,0 +1,10 @@
+{
+  "name": "EDM",
+  "tempo_range": [125, 135],
+  "groove": "four-on-the-floor, build-drop structure",
+  "instrumentation": ["synthesizers", "drum machines", "sub-bass", "arpeggiated leads"],
+  "energy_curve": "tension build → euphoric drop → breakdown → drop",
+  "vocal_style": "anthemic hooks, vocal chops, minimal verses",
+  "prompt_tokens": ["EDM", "festival anthem", "euphoric drop", "synthesizer", "four on the floor"],
+  "darkness": 0.2, "melodicness": 0.7, "aggression": 0.4, "atmosphere": 0.8, "groove_density": 0.7
+}

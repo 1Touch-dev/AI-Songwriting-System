@@ -59,6 +59,7 @@ export interface GenerateResult {
   output_mode: string
   timestamp: string
   audio_metadata: AudioMetadata | null
+  chorus_preserved: boolean | null
 }
 
 export interface Project {

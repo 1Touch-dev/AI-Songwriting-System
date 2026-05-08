@@ -1,0 +1,10 @@
+{
+  "name": "Drill",
+  "tempo_range": [138, 145],
+  "groove": "sliding 808s, dark triplet hi-hats",
+  "instrumentation": ["808 bass", "trap hi-hats", "dark strings", "piano stabs"],
+  "energy_curve": "menacing constant pressure, minimal drops",
+  "vocal_style": "monotone aggressive rap, UK slang, cold delivery",
+  "prompt_tokens": ["UK drill", "dark trap", "808 slides", "menacing", "aggressive rap"],
+  "darkness": 0.9, "melodicness": 0.2, "aggression": 0.9, "atmosphere": 0.6, "groove_density": 0.8
+}

@@ -19,8 +19,10 @@ import type {
 } from '@/lib/types'
 import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
-  extractChorus, extractStems, getStemStatus, getGlobalArtists
+  extractChorus, extractStems, getStemStatus, getGlobalArtists,
+  analyzeTrack, generateRemixVariants, downloadDAWSession
 } from '@/lib/api'
+import type { AudioAnalysisResult, RemixVariant } from '@/lib/types'
 
 // ── Song structures ───────────────────────────────────────────────────────
 const STRUCTURES: Record<string, string[]> = {
@@ -364,6 +366,17 @@ export default function StudioPage() {
 
   const [activeTab, setActiveTab] = useState<'lyrics'|'insights'|'variants'|'stats'|'stems'>('lyrics')
 
+  // Intelligence Layer state
+  const [instrumentalAnalysis, setInstrumentalAnalysis] = useState<AudioAnalysisResult | null>(null)
+  const [analyzingTrack, setAnalyzingTrack] = useState(false)
+  const [genreRemixVariants, setGenreRemixVariants] = useState<RemixVariant[]>([])
+  const [selectedRemixGenres, setSelectedRemixGenres] = useState<string[]>([])
+  const [generatingVariants, setGeneratingVariants] = useState(false)
+  const [dawExporting, setDawExporting] = useState(false)
+  const [expandedVariant, setExpandedVariant] = useState<string | null>(null)
+
+  const REMIX_GENRE_OPTIONS = ['Drill', 'EDM', 'Afrobeat', 'Synthwave', 'Acoustic', 'Trap']
+
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
 
@@ -432,6 +445,80 @@ export default function StudioPage() {
     set('artist')(name)
     setShowSuggestions(false)
   }
+
+  // ── Auto-analyze uploaded instrumental ───────────────────────────────
+  useEffect(() => {
+    if (!uploadedInst || !token) { setInstrumentalAnalysis(null); return }
+    let cancelled = false
+    setAnalyzingTrack(true)
+    setInstrumentalAnalysis(null)
+    analyzeTrack(token, uploadedInst)
+      .then(result => { if (!cancelled) setInstrumentalAnalysis(result) })
+      .catch(() => { /* non-critical — analysis is optional */ })
+      .finally(() => { if (!cancelled) setAnalyzingTrack(false) })
+    return () => { cancelled = true }
+  }, [uploadedInst, token])
+
+  // ── Generate genre remix variants ─────────────────────────────────────
+  const generateVariants = useCallback(async () => {
+    if (!result || !lockedChorus || selectedRemixGenres.length === 0) return
+    setGeneratingVariants(true)
+    setGenreRemixVariants([])
+    try {
+      const { variants } = await generateRemixVariants(token, {
+        locked_chorus: lockedChorus,
+        original_lyrics: result.lyrics,
+        theme: state.theme,
+        artists: [state.artist || 'Drake'],
+        target_genres: selectedRemixGenres.map(g => g.toLowerCase()),
+        bars: state.bars,
+        language: state.language,
+      })
+      setGenreRemixVariants(variants)
+      if (variants.length > 0) toast.success(`${variants.length} genre remix${variants.length > 1 ? 's' : ''} generated!`)
+      else toast.error('No variants returned — check genre availability.')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed'
+      toast.error(`Remix variants failed: ${msg}`)
+    } finally {
+      setGeneratingVariants(false)
+    }
+  }, [result, lockedChorus, selectedRemixGenres, token, state.theme, state.artist, state.bars, state.language])
+
+  // ── DAW Export ────────────────────────────────────────────────────────
+  const exportDAWSession = useCallback(async () => {
+    if (!result) return
+    setDawExporting(true)
+    try {
+      const blob = await downloadDAWSession(token, {
+        title: result.theme || state.theme || 'SonicFlow Session',
+        artist: state.artist || 'Unknown',
+        theme: result.theme || state.theme,
+        lyrics: result.lyrics,
+        language: state.language,
+        bpm: instrumentalAnalysis?.bpm ?? 120,
+        key: instrumentalAnalysis?.key ?? 'C major',
+        bars: state.bars,
+        darkness: 0.5,
+        chords: (instrumentalAnalysis?.chords ?? []).slice(0, 8),
+        voice_audio_b64: result.voice_audio_b64,
+        music_audio_b64: result.music_audio_b64,
+        mix_audio_b64: result.mixed_audio_b64,
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${(result.theme || 'session').replace(/\s+/g, '_')}_daw_session.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('DAW session downloaded!')
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Export failed'
+      toast.error(`DAW export failed: ${msg}`)
+    } finally {
+      setDawExporting(false)
+    }
+  }, [result, token, state.theme, state.artist, state.language, state.bars, instrumentalAnalysis])
 
   // ── Main generation ───────────────────────────────────────────────────
   const generate = useCallback(async () => {
@@ -967,8 +1054,31 @@ export default function StudioPage() {
                     onChange={e => setUploadedInst(e.target.files?.[0] ?? null)} />
                   {uploadedInst && (
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-xs" style={{ color: '#d277ff' }}>✓ Shaping lyric cadence</span>
-                      <button onClick={() => setUploadedInst(null)} className="text-xs text-text-muted hover:text-error">remove</button>
+                      <span className="text-xs flex items-center gap-1" style={{ color: '#d277ff' }}>
+                        {analyzingTrack
+                          ? <><Loader2 size={10} className="animate-spin" /> Analyzing audio...</>
+                          : '✓ Shaping lyric cadence'
+                        }
+                      </span>
+                      <button onClick={() => { setUploadedInst(null); setInstrumentalAnalysis(null) }}
+                        className="text-xs text-text-muted hover:text-error">remove</button>
+                    </div>
+                  )}
+                  {/* BPM / Key / Energy badges */}
+                  {instrumentalAnalysis && !instrumentalAnalysis.error && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <span className="px-2 py-0.5 rounded-md text-xs font-semibold"
+                        style={{ background: 'rgba(143,245,255,0.12)', color: '#8ff5ff' }}>
+                        {instrumentalAnalysis.bpm.toFixed(0)} BPM
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-xs font-semibold"
+                        style={{ background: 'rgba(195,244,0,0.10)', color: '#c3f400' }}>
+                        {instrumentalAnalysis.key}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md text-xs font-semibold capitalize"
+                        style={{ background: 'rgba(210,119,255,0.10)', color: '#d277ff' }}>
+                        {instrumentalAnalysis.energy_intensity} energy
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1450,8 +1560,21 @@ export default function StudioPage() {
                               </a>
                             )}
                           </div>
+
+                          {/* DAW Session ZIP export */}
+                          <button
+                            onClick={exportDAWSession}
+                            disabled={dawExporting}
+                            title="Download stems, MIDI, arrangement markers and project file"
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 w-full justify-center"
+                            style={{ background: 'rgba(255,165,2,0.12)', color: '#ffa502', border: '1px solid rgba(255,165,2,0.3)' }}>
+                            {dawExporting
+                              ? <><Loader2 size={12} className="animate-spin" /> Building session...</>
+                              : <><Download size={12} /> Export DAW Session (ZIP)</>}
+                          </button>
+
                           <p className="text-xs" style={{ color: '#555' }}>
-                            Ready for FL Studio · Logic Pro · Ableton Live
+                            Ready for FL Studio · Logic Pro · Ableton Live · Includes MIDI + arrangement markers
                           </p>
                           {hasStemsReady && (
                             <p className="text-xs" style={{ color: '#c3f400' }}>
@@ -1485,9 +1608,21 @@ export default function StudioPage() {
                     {activeTab === 'lyrics' && (
                       <div className="space-y-3">
                         {result.locked_chorus && (
-                          <div className="rounded-lg px-3 py-2 text-xs"
+                          <div className="rounded-lg px-3 py-2 text-xs flex items-center justify-between"
                             style={{ background: 'rgba(195,244,0,0.06)', border: '1px solid rgba(195,244,0,0.15)', color: '#c3f400' }}>
-                            <Lock size={10} className="inline mr-1" /> Chorus locked during remix
+                            <span><Lock size={10} className="inline mr-1" /> Chorus locked during remix</span>
+                            {result.chorus_preserved === true && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                                style={{ background: 'rgba(195,244,0,0.15)', color: '#c3f400' }}>
+                                ✓ Preserved
+                              </span>
+                            )}
+                            {result.chorus_preserved === false && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                                style={{ background: 'rgba(255,71,87,0.12)', color: '#ff4757' }}>
+                                ✗ Modified
+                              </span>
+                            )}
                           </div>
                         )}
                         <div className="whitespace-pre-wrap text-sm leading-loose font-body">
@@ -1500,9 +1635,70 @@ export default function StudioPage() {
                     {activeTab === 'insights' && (
                       <div className="space-y-4">
                         <h3 className="section-title">AI Production Analysis</h3>
+
+                        {/* Instrumental analysis badges if available */}
+                        {instrumentalAnalysis !== null ? (
+                          instrumentalAnalysis.error === null ? (
+                            <div className="rounded-xl p-3 space-y-2"
+                              style={{ background: 'rgba(143,245,255,0.05)', border: '1px solid rgba(143,245,255,0.12)' }}>
+                              <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#8ff5ff' }}>
+                                Instrumental Profile
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                <span className="px-2 py-0.5 rounded text-xs" style={{ background: 'rgba(143,245,255,0.1)', color: '#8ff5ff' }}>
+                                  {instrumentalAnalysis.bpm.toFixed(0)} BPM
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-xs" style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400' }}>
+                                  {instrumentalAnalysis.key}
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-xs capitalize" style={{ background: 'rgba(210,119,255,0.08)', color: '#d277ff' }}>
+                                  {instrumentalAnalysis.energy_intensity} energy
+                                </span>
+                                <span className="px-2 py-0.5 rounded text-xs" style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
+                                  {instrumentalAnalysis.stress_pattern}
+                                </span>
+                              </div>
+                              {instrumentalAnalysis.flow_descriptors.length > 0 ? (
+                                <p className="text-xs" style={{ color: '#888' }}>
+                                  Flow: {instrumentalAnalysis.flow_descriptors.join(' · ')}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null
+                        ) : null}
+
+                        {/* Flow Profile card from generated lyrics */}
+                        {result.analysis != null && Boolean((result.analysis as Record<string, unknown>).cadence_profile) ? (
+                          <div className="rounded-xl p-3 space-y-2"
+                            style={{ background: 'rgba(195,244,0,0.04)', border: '1px solid rgba(195,244,0,0.1)' }}>
+                            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#c3f400' }}>
+                              Flow Profile
+                            </div>
+                            {(() => {
+                              const cp = (result.analysis as Record<string, unknown>).cadence_profile as Record<string, string | number>
+                              return (
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  {cp.rhyme_scheme ? (
+                                    <div><span className="text-text-muted">Rhyme:</span> <span style={{ color: '#c3f400' }}>{String(cp.rhyme_scheme)}</span></div>
+                                  ) : null}
+                                  {cp.avg_syllables_per_line ? (
+                                    <div><span className="text-text-muted">Syllables/line:</span> <span style={{ color: '#c3f400' }}>{Number(cp.avg_syllables_per_line).toFixed(1)}</span></div>
+                                  ) : null}
+                                  {cp.flow_density ? (
+                                    <div><span className="text-text-muted">Flow density:</span> <span style={{ color: '#c3f400' }}>{String(cp.flow_density)}</span></div>
+                                  ) : null}
+                                  {cp.stress_style ? (
+                                    <div><span className="text-text-muted">Stress style:</span> <span style={{ color: '#c3f400' }}>{String(cp.stress_style)}</span></div>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
+                          </div>
+                        ) : null}
+
                         {result.analysis ? (
                           <div className="space-y-3">
-                            {Object.entries(result.analysis).map(([key, val]) => (
+                            {Object.entries(result.analysis).filter(([k]) => k !== 'cadence_profile').map(([key, val]) => (
                               <div key={key} className="space-y-1">
                                 <div className="text-xs font-semibold uppercase tracking-wider"
                                   style={{ color: '#8ff5ff' }}>
@@ -1516,6 +1712,11 @@ export default function StudioPage() {
                                       </li>
                                     ))}
                                   </ul>
+                                ) : typeof val === 'object' && val !== null ? (
+                                  <pre className="text-xs text-text-secondary overflow-auto rounded p-2"
+                                    style={{ background: 'rgba(255,255,255,0.02)', maxHeight: '120px' }}>
+                                    {JSON.stringify(val, null, 2)}
+                                  </pre>
                                 ) : (
                                   <p className="text-xs text-text-secondary">{String(val)}</p>
                                 )}
@@ -1598,6 +1799,113 @@ export default function StudioPage() {
                 </div>
               </div>
             ) : null}
+
+            {/* Genre Remix Variants Panel */}
+            {result && result.lyrics && lockedChorus && (
+              <div className="glass-panel p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="section-title flex items-center gap-2">
+                    <Blend size={13} /> Generate Genre Remixes
+                  </h3>
+                  {generatingVariants && (
+                    <span className="text-xs flex items-center gap-1" style={{ color: '#d277ff' }}>
+                      <Loader2 size={11} className="animate-spin" />
+                      Generating {selectedRemixGenres.length} remix{selectedRemixGenres.length > 1 ? 'es' : ''}...
+                    </span>
+                  )}
+                </div>
+
+                {/* Genre chips */}
+                <div className="flex flex-wrap gap-2">
+                  {REMIX_GENRE_OPTIONS.map(genre => {
+                    const isSelected = selectedRemixGenres.includes(genre)
+                    return (
+                      <button key={genre}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedRemixGenres(prev => prev.filter(g => g !== genre))
+                          } else if (selectedRemixGenres.length < 5) {
+                            setSelectedRemixGenres(prev => [...prev, genre])
+                          } else {
+                            toast.error('Max 5 genres per request')
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        style={isSelected
+                          ? { background: 'rgba(210,119,255,0.2)', color: '#d277ff', border: '1px solid rgba(210,119,255,0.4)' }
+                          : { background: 'rgba(255,255,255,0.04)', color: '#555', border: '1px solid rgba(255,255,255,0.08)' }
+                        }>
+                        {genre}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <button
+                  onClick={generateVariants}
+                  disabled={generatingVariants || selectedRemixGenres.length === 0}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold transition-all disabled:opacity-40"
+                  style={{ background: 'rgba(210,119,255,0.12)', color: '#d277ff', border: '1px solid rgba(210,119,255,0.25)' }}>
+                  {generatingVariants
+                    ? <><Loader2 size={12} className="animate-spin" /> Generating {selectedRemixGenres.length} remixes...</>
+                    : <><Wand2 size={12} /> Generate {selectedRemixGenres.length > 0 ? `${selectedRemixGenres.length} ` : ''}Genre Remix{selectedRemixGenres.length !== 1 ? 'es' : ''}</>
+                  }
+                </button>
+
+                {/* Remix variant result cards */}
+                {genreRemixVariants.length > 0 && (
+                  <div className="space-y-3 mt-1">
+                    {genreRemixVariants.map((variant, i) => (
+                      <div key={i} className="rounded-xl overflow-hidden"
+                        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        {/* Card header */}
+                        <button
+                          className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-glass"
+                          onClick={() => setExpandedVariant(expandedVariant === variant.genre ? null : variant.genre)}>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded-md text-xs font-bold"
+                              style={{ background: 'rgba(210,119,255,0.2)', color: '#d277ff' }}>
+                              {variant.genre}
+                            </span>
+                            <span className="text-xs" style={{ color: '#888' }}>
+                              {variant.bpm_target.toFixed(0)} BPM
+                            </span>
+                            <span className="text-xs" style={{ color: '#666' }}>
+                              · cadence {(variant.cadence_match_score * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                          <ChevronDown size={14} className={`text-text-muted transition-transform ${expandedVariant === variant.genre ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {expandedVariant === variant.genre && (
+                          <div className="px-4 pb-4 space-y-3">
+                            <p className="text-xs" style={{ color: '#888' }}>{variant.style_notes}</p>
+                            {variant.suno_tags && (
+                              <p className="text-xs" style={{ color: '#555' }}>
+                                Tags: {variant.suno_tags}
+                              </p>
+                            )}
+                            <div className="whitespace-pre-wrap text-xs leading-loose text-text-secondary rounded-lg p-3"
+                              style={{ background: 'rgba(255,255,255,0.02)' }}>
+                              {variant.lyrics}
+                            </div>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(variant.lyrics)
+                                toast.success(`${variant.genre} lyrics copied!`)
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                              style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.15)' }}>
+                              Copy Lyrics
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* History */}
             {history.length > 1 && (

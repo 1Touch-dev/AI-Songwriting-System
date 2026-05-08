@@ -157,9 +157,24 @@ def _load_genres() -> None:
     if _LOADED:
         return
     GENRES_DIR.mkdir(parents=True, exist_ok=True)
-    for path in GENRES_DIR.glob("*.json"):
+
+    loaded_count = 0
+    skipped_count = 0
+    all_files = list(GENRES_DIR.glob("*.json"))
+
+    for path in all_files:
         try:
-            data = json.loads(path.read_text())
+            raw = path.read_text(encoding="utf-8")
+            if not raw.strip():
+                print(f"[GENRE] WARNING: {path.name} is empty — skipping", flush=True)
+                skipped_count += 1
+                continue
+            data = json.loads(raw)
+            # Validate required field
+            if "name" not in data:
+                print(f"[GENRE] WARNING: {path.name} missing required 'name' field — skipping", flush=True)
+                skipped_count += 1
+                continue
             profile = GenreProfile(
                 name=data["name"],
                 tempo_range=data.get("tempo_range", [90, 130]),
@@ -176,10 +191,26 @@ def _load_genres() -> None:
             )
             key = profile.name.lower().replace(" ", "_").replace("-", "_")
             _REGISTRY[key] = profile
+            loaded_count += 1
+        except json.JSONDecodeError as e:
+            print(f"[GENRE] WARNING: {path.name} contains invalid JSON — skipping ({e})", flush=True)
+            skipped_count += 1
         except Exception as e:
-            print(f"[GENRE] Failed to load {path.name}: {e}", flush=True)
+            print(f"[GENRE] WARNING: Failed to load {path.name}: {e} — skipping", flush=True)
+            skipped_count += 1
+
     _LOADED = True
-    print(f"[GENRE] Loaded {len(_REGISTRY)} genre profiles", flush=True)
+
+    if skipped_count > 0:
+        print(f"[GENRE] Loaded {loaded_count}/{len(all_files)} genre profiles "
+              f"({skipped_count} skipped due to errors)", flush=True)
+    else:
+        print(f"[GENRE] Loaded {loaded_count} genre profiles", flush=True)
+
+    if loaded_count == 0:
+        print(f"[GENRE] ERROR: No genre profiles loaded! "
+              f"Check {GENRES_DIR} — expected .json files. "
+              f"Genre endpoints will return empty results.", flush=True)
 
 
 def list_genres() -> list[str]:

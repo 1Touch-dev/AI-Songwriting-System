@@ -302,21 +302,41 @@ Respond ONLY with the corrected [Chorus].
             return chorus
 
     def validate_and_fix(self, lyrics: str, locked_chorus: str = "") -> str:
-        """Full song validator pass. Skips chorus rewriting if it matches locked_chorus."""
+        """
+        Full song validator pass. Hardened locked-chorus preservation:
+        - Threshold raised to 85% line overlap (was 60%)
+        - If locked_chorus is set AND a [Chorus] label is present,
+          skip LLM validation entirely for chorus sections
+        """
         if not lyrics or "[Chorus]" not in lyrics:
             return lyrics
 
         # If a chorus is locked, extract it from the generated lyrics and verify
         # it matches before allowing the validator to touch it.
         if locked_chorus and locked_chorus.strip():
-            locked_lines = {l.strip().lower() for l in locked_chorus.strip().splitlines() if l.strip()}
-            chorus_match = re.search(r"\[Chorus[^\]]*\]\n(.*?)(?=\n\[|\Z)", lyrics, re.S)
-            if chorus_match:
-                generated_lines = {l.strip().lower() for l in chorus_match.group(1).strip().splitlines() if l.strip()}
-                overlap = len(locked_lines & generated_lines) / max(len(locked_lines), 1)
-                if overlap >= 0.6:
-                    print(f"[VALIDATOR] Locked chorus preserved (overlap={overlap:.0%}) — skipping rewrite.", flush=True)
-                    return lyrics
+            locked_lines = [l.strip() for l in locked_chorus.strip().splitlines() if l.strip()]
+            locked_set = {l.lower() for l in locked_lines}
+
+            # Check overlap across ALL chorus blocks in the lyrics
+            chorus_matches = list(re.finditer(r"\[Chorus[^\]]*\]\n(.*?)(?=\n\[|\Z)", lyrics, re.S))
+            if chorus_matches:
+                for m in chorus_matches:
+                    generated_lines = [l.strip() for l in m.group(1).strip().splitlines() if l.strip()]
+                    generated_set = {l.lower() for l in generated_lines}
+                    overlap = len(locked_set & generated_set) / max(len(locked_set), 1)
+                    if overlap >= 0.85:
+                        print(
+                            f"[VALIDATOR] Locked chorus preserved (overlap={overlap:.0%} >= 85%) "
+                            f"— skipping LLM validation entirely.",
+                            flush=True,
+                        )
+                        return lyrics
+                    else:
+                        print(
+                            f"[VALIDATOR] Locked chorus overlap={overlap:.0%} < 85% "
+                            f"— proceeding with validation.",
+                            flush=True,
+                        )
 
         if self.quick_verify(lyrics):
             return lyrics

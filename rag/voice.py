@@ -27,38 +27,55 @@ MAX_CHARS           = 4500                        # ElevenLabs safe limit
 # Female: Rachel=21m00Tcm4TlvDq8ikWAM, Bella=EXAVITQu4vr4xnSDxMaL,
 #         Domi=AZnzlk1XvdvUeBnXmlld, Elli=MF3mGyEYCl7XYWbV9V6O
 _ARTIST_VOICE_MAP: dict[str, str] = {
+    # ── Male — Hip-Hop / R&B ─────────────────────────────────────────────
     "drake":             "pNInz6obpgDQGcFmaJgB",   # Adam — deep American male
-    "chris brown":       "TxGEqnHWrfWFTfGW9XjX",   # Josh — smooth American male
-    "dwayne johnson":    "VR6AewLTigWG4xSOukaG",   # Arnold — powerful male
+    "travis scott":      "VR6AewLTigWG4xSOukaG",   # Arnold — intense, energetic male
+    "kendrick lamar":    "pNInz6obpgDQGcFmaJgB",   # Adam — precise American male
+    "j. cole":           "JBFqnCBsd6RMkjVDRZzb",   # George — thoughtful, warm male
+    "j cole":            "JBFqnCBsd6RMkjVDRZzb",   # (alias without period)
     "kanye west":        "pNInz6obpgDQGcFmaJgB",   # Adam
     "jay z":             "pNInz6obpgDQGcFmaJgB",   # Adam
+    "jay-z":             "pNInz6obpgDQGcFmaJgB",   # (alias with hyphen)
     "eminem":            "VR6AewLTigWG4xSOukaG",   # Arnold — intense male
-    "the weeknd":        "TxGEqnHWrfWFTfGW9XjX",   # Josh
+    "the weeknd":        "TxGEqnHWrfWFTfGW9XjX",   # Josh — smooth, emotional male
     "post malone":       "ErXwobaYiN019PkySvjV",   # Antoni — laid-back male
+    "chris brown":       "TxGEqnHWrfWFTfGW9XjX",   # Josh — smooth American male
+    # ── Male — Pop / Rock ────────────────────────────────────────────────
     "elton john":        "JBFqnCBsd6RMkjVDRZzb",   # George — British warmth
     "john denver":       "JBFqnCBsd6RMkjVDRZzb",   # George — folk warmth
     "ed sheeran":        "ErXwobaYiN019PkySvjV",   # Antoni — gentle male
     "bruno mars":        "TxGEqnHWrfWFTfGW9XjX",   # Josh
-    "ariana grande":     "MF3mGyEYCl7XYWbV9V6O",   # Elli — young American female
+    "dwayne johnson":    "VR6AewLTigWG4xSOukaG",   # Arnold — powerful male
+    # ── Female — Pop / R&B ───────────────────────────────────────────────
     "taylor swift":      "21m00Tcm4TlvDq8ikWAM",   # Rachel — warm American female
+    "billie eilish":     "AZnzlk1XvdvUeBnXmlld",   # Domi — breathy, distinctive
+    "sza":               "EXAVITQu4vr4xnSDxMaL",   # Bella — soulful, alt-R&B female
+    "ariana grande":     "MF3mGyEYCl7XYWbV9V6O",   # Elli — young American female
+    "doja cat":          "21m00Tcm4TlvDq8ikWAM",   # Rachel — versatile female
     "selena gomez":      "EXAVITQu4vr4xnSDxMaL",   # Bella — soft American female
     "sabrina carpenter": "MF3mGyEYCl7XYWbV9V6O",   # Elli — youthful female
     "olivia rodrigo":    "MF3mGyEYCl7XYWbV9V6O",   # Elli
-    "billie eilish":     "AZnzlk1XvdvUeBnXmlld",   # Domi — breathy, distinctive
     "rihanna":           "AZnzlk1XvdvUeBnXmlld",   # Domi — strong female
     "beyonce":           "AZnzlk1XvdvUeBnXmlld",   # Domi — powerful female
     "adele":             "EXAVITQu4vr4xnSDxMaL",   # Bella — soulful female
-    "doja cat":          "21m00Tcm4TlvDq8ikWAM",   # Rachel
 }
 
 def get_voice_id_for_artist(artist: str, gender: str = "Neutral") -> str:
-    """Return the best ElevenLabs voice ID for the given artist, with gender fallback."""
-    key = artist.lower().strip()
-    if key in _ARTIST_VOICE_MAP:
+    """
+    Return the best ElevenLabs voice ID for the given artist, with gender fallback.
+
+    Fallback chain:
+      1. Exact match in _ARTIST_VOICE_MAP (case-insensitive)
+      2. Gender fallback: female → Rachel, else → George (default)
+      3. Empty string → default voice (George)
+    """
+    key = (artist or "").lower().strip()
+    if key and key in _ARTIST_VOICE_MAP:
         return _ARTIST_VOICE_MAP[key]
+    # Gender-based fallback
     if gender.lower() == "female":
-        return DEFAULT_VOICE_ID_F
-    return DEFAULT_VOICE_ID
+        return DEFAULT_VOICE_ID_F   # Rachel
+    return DEFAULT_VOICE_ID          # George
 OPENAI_MAX_CHARS    = 4096                        # OpenAI TTS limit per request
 RETRY_ATTEMPTS      = 3
 RETRY_DELAY_S       = 4

@@ -1,0 +1,10 @@
+{
+  "name": "K-Pop",
+  "tempo_range": [100, 130],
+  "groove": "precise choreography-matched rhythm, clean production",
+  "instrumentation": ["synthesizers", "trap hi-hats", "punchy kicks", "bright leads", "strings"],
+  "energy_curve": "verse build → pre-chorus tension → explosive chorus",
+  "vocal_style": "polished harmonies, rapping and singing blend, Korean/English mix",
+  "prompt_tokens": ["K-pop", "Korean pop", "idol music", "girl group", "boy band", "choreography anthem"],
+  "darkness": 0.2, "melodicness": 0.9, "aggression": 0.3, "atmosphere": 0.7, "groove_density": 0.7
+}

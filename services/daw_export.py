@@ -35,6 +35,8 @@ class ArrangementMarker:
     beat_position: float   # absolute beat (bar * beats_per_bar)
     time_s: float          # seconds from start
     color: str             # for DAW color coding
+    energy_level: float = 0.5     # 0-1 normalised energy for this section
+    tempo_bpm: float = 120.0      # tempo at this section (allows future tempo changes)
 
 @dataclass
 class TempoMap:
@@ -145,21 +147,43 @@ def _build_markers(
     bpm: float,
     bars_per_section: int = 8,
     beats_per_bar: int = 4,
+    section_energies: Optional[list[float]] = None,
 ) -> list[ArrangementMarker]:
-    """Assign bar positions to each section label."""
+    """
+    Assign bar positions to each section label.
+    Includes bar numbers, timestamps, energy level per section, and tempo.
+    """
     beat_dur = 60.0 / bpm
     markers = []
     bar_cursor = 1
 
-    for label in sections:
+    for i, label in enumerate(sections):
         beat_pos = (bar_cursor - 1) * beats_per_bar
         time_s   = beat_pos * beat_dur
+
+        # Energy level: use audio analysis section energies if available
+        if section_energies and i < len(section_energies):
+            energy = section_energies[i]
+        else:
+            # Heuristic: choruses louder, intros/outros quieter
+            label_lower = label.lower()
+            if "chorus" in label_lower or "hook" in label_lower or "drop" in label_lower:
+                energy = 0.85
+            elif "intro" in label_lower or "outro" in label_lower:
+                energy = 0.40
+            elif "bridge" in label_lower:
+                energy = 0.70
+            else:
+                energy = 0.60
+
         markers.append(ArrangementMarker(
             label=label,
             bar_number=bar_cursor,
             beat_position=round(beat_pos, 2),
             time_s=round(time_s, 2),
             color=_section_color(label),
+            energy_level=round(energy, 3),
+            tempo_bpm=round(bpm, 2),
         ))
         bar_cursor += bars_per_section
 
@@ -185,8 +209,16 @@ def _build_chord_midi(
     chords: list[str],
     bpm: float,
     total_bars: int,
+    markers: Optional[list["ArrangementMarker"]] = None,
 ) -> bytes:
-    """Generate a chord MIDI file from harmonic analysis."""
+    """
+    Generate a chord MIDI file from harmonic analysis.
+
+    Improvements:
+    - Each chord lasts exactly one bar (4/4), duration = 4 - 0.1 beats (sustain)
+    - Velocity varies by section: intro=55 (quiet), chorus=95 (loud), verse=72 (mid)
+    - Section marker events added where midiutil supports it
+    """
     try:
         from midiutil import MIDIFile
 
@@ -197,11 +229,41 @@ def _build_chord_midi(
         root_midi = _KEY_ROOT_MIDI.get(root, 60)
         intervals = _MAJOR_CHORD_INTERVALS if mode == "major" else _MINOR_CHORD_INTERVALS
         beats_per_bar = 4
-        bar = 0
+        sustain_beats = beats_per_bar - 0.1   # full bar minus tiny gap
+
+        # Build bar→velocity map from markers
+        bar_velocity: dict[int, int] = {}
+        if markers:
+            for mk in markers:
+                label_lower = mk.label.lower()
+                if "intro" in label_lower or "outro" in label_lower:
+                    vel = 55
+                elif "chorus" in label_lower or "hook" in label_lower:
+                    vel = 95
+                elif "bridge" in label_lower or "drop" in label_lower:
+                    vel = 85
+                else:
+                    vel = 72  # verse
+                # Assign velocity to all bars in this section
+                # (We don't know section length, so assign up to next marker)
+                bar_velocity[mk.bar_number] = vel
+
+        def _vel_for_bar(bar_1indexed: int) -> int:
+            """Return velocity for a given 1-indexed bar number."""
+            if not bar_velocity:
+                return 75
+            # Find the most recent marker that covers this bar
+            applicable = [b for b in bar_velocity if b <= bar_1indexed]
+            if applicable:
+                return bar_velocity[max(applicable)]
+            return 75
 
         for i, chord_label in enumerate(chords[:total_bars]):
-            beat = bar * beats_per_bar
-            # Parse chord root from label (e.g. "Cmaj" → C)
+            bar_1indexed = i + 1
+            beat = i * beats_per_bar  # absolute beat position
+            velocity = _vel_for_bar(bar_1indexed)
+
+            # Parse chord root from label (e.g. "Cmaj" → C, "Cmin" → C)
             match = re.match(r"([A-G]#?)", chord_label)
             if match:
                 chord_root = _KEY_ROOT_MIDI.get(match.group(1), root_midi)
@@ -209,9 +271,13 @@ def _build_chord_midi(
                 chord_root = root_midi
 
             for iv in intervals:
-                mf.addNote(0, 0, chord_root + iv, beat, beats_per_bar - 0.1, 75)
+                mf.addNote(0, 0, chord_root + iv, beat, sustain_beats, velocity)
 
-            bar += 1
+            # Add marker text if midiutil supports it
+            try:
+                mf.addText(0, beat, f"Chord {bar_1indexed}: {chord_label}")
+            except Exception:
+                pass  # older midiutil versions may not have addText
 
         buf = io.BytesIO()
         mf.writeFile(buf)
@@ -229,7 +295,16 @@ def _build_melody_midi(
     total_bars: int,
     darkness: float = 0.5,
 ) -> bytes:
-    """Generate a simple melodic guide MIDI in the detected key."""
+    """
+    Generate a melodic guide MIDI in the detected key.
+
+    Improvements:
+    - Stays within C4 (60) to C6 (84) — 2-octave range
+    - Mix of quarter notes (1.0 beat) and eighth notes (0.5 beat) for variety
+    - 4-bar phrase breathing: small gap (0.1 beat rest) at every 4th bar
+    - Velocity variation: alternating strong/weak beats (natural accent)
+    - Uses correct major/minor scale for the detected key/mode
+    """
     try:
         from midiutil import MIDIFile
 
@@ -238,23 +313,69 @@ def _build_melody_midi(
 
         root_midi = _KEY_ROOT_MIDI.get(root, 60)
         scale = _MINOR_SCALE if (mode == "minor" or darkness > 0.6) else _MAJOR_SCALE
-        scale_notes = [root_midi + iv for iv in scale] + [root_midi + 12 + iv for iv in scale]
+
+        # Build scale within C4 (60) to C6 (84) — 2 octaves
+        # Start from root near C4 (middle C)
+        start_midi = root_midi
+        while start_midi < 60:
+            start_midi += 12
+        while start_midi > 67:   # keep within lower octave
+            start_midi -= 12
+
+        scale_notes: list[int] = []
+        for octave_offset in (0, 12):
+            for iv in scale:
+                pitch = start_midi + octave_offset + iv
+                if 60 <= pitch <= 84:
+                    scale_notes.append(pitch)
+        scale_notes = sorted(set(scale_notes))
+
+        if not scale_notes:
+            scale_notes = [60, 62, 64, 65, 67, 69, 71, 72]  # C major fallback
+
+        # Note duration patterns: mix of quarter (1.0) and eighth (0.5)
+        # 4/4 bar = 4 beats; fill with: Q Q E E Q pattern = 1+1+0.5+0.5+1 = 4 beats
+        phrase_pattern = [1.0, 1.0, 0.5, 0.5, 1.0]   # sums to 4 beats per bar
+        # Strong beat velocity (beat 1 and 3) = higher; weak = lower
+        phrase_velocities = [80, 65, 70, 60, 75]
 
         beat = 0.0
-        note_dur = 0.5   # eighth notes
         note_idx = 0
+        ascending = True
 
         for bar in range(total_bars):
-            for _ in range(8):   # 8 eighth notes per bar
-                pitch = scale_notes[note_idx % len(scale_notes)]
-                mf.addNote(0, 0, pitch, beat, note_dur - 0.05, 60)
-                beat += note_dur
-                # Step through scale, direction reversal for variation
-                if note_idx % 8 < 4:
+            # Phrase breathing gap at the end of every 4th bar
+            is_phrase_end = (bar > 0 and (bar % 4) == 0)
+
+            pattern_pos = 0
+            bar_beat_offset = 0.0
+
+            while bar_beat_offset < 4.0:
+                dur = phrase_pattern[pattern_pos % len(phrase_pattern)]
+                vel = phrase_velocities[pattern_pos % len(phrase_velocities)]
+
+                # Leave a breath gap at phrase boundary (skip last note of phrase-end bar)
+                is_last_beat_of_phrase_end = is_phrase_end and (bar_beat_offset + dur >= 4.0)
+                if not is_last_beat_of_phrase_end:
+                    pitch = scale_notes[note_idx % len(scale_notes)]
+                    note_actual_dur = dur - 0.05  # avoid MIDI overlap
+                    mf.addNote(0, 0, pitch, beat + bar_beat_offset, note_actual_dur, vel)
+
+                bar_beat_offset += dur
+                pattern_pos += 1
+
+                # Advance note index with direction reversal for melodic contour
+                if ascending:
                     note_idx += 1
+                    if note_idx >= len(scale_notes) - 1:
+                        ascending = False
                 else:
                     note_idx -= 1
-                note_idx = max(0, note_idx)
+                    if note_idx <= 0:
+                        ascending = True
+                note_idx = max(0, min(note_idx, len(scale_notes) - 1))
+
+            beat += 4.0  # always advance by full bar
 
         buf = io.BytesIO()
         mf.writeFile(buf)
@@ -300,10 +421,16 @@ def build_daw_session(req: DAWSessionRequest) -> DAWSession:
     total_bars = bars_per_section * n_sections
 
     tempo = _build_tempo_map(req.bpm, total_bars)
-    markers = _build_markers(sections, req.bpm, bars_per_section)
 
-    # MIDI
-    chord_midi = _build_chord_midi(root, mode, req.chords, req.bpm, total_bars)
+    # Pass section energies from audio analysis if available
+    audio_section_energies: Optional[list[float]] = None
+    if req.audio_analysis and hasattr(req.audio_analysis, "energy"):
+        audio_section_energies = req.audio_analysis.energy.section_energies or None
+
+    markers = _build_markers(sections, req.bpm, bars_per_section, section_energies=audio_section_energies)
+
+    # MIDI — pass markers for velocity variation in chord MIDI
+    chord_midi = _build_chord_midi(root, mode, req.chords, req.bpm, total_bars, markers)
     melody_midi = _build_melody_midi(root, mode, req.bpm, total_bars, req.darkness)
 
     # Stem file mapping with professional naming
@@ -372,10 +499,35 @@ def export_session_zip(
             json.dumps(asdict(session.tempo_map), indent=2),
         )
 
-        # arrangement_markers.json
+        # arrangement_markers.json (legacy name, kept for compatibility)
         zf.writestr(
             f"{session_name}/arrangement_markers.json",
             json.dumps([asdict(m) for m in session.markers], indent=2),
+        )
+
+        # arrangement.json — full arrangement with bar numbers, timestamps, energy, tempo
+        arrangement_data = {
+            "version": "5.1",
+            "bpm": session.project.bpm,
+            "key": session.project.key,
+            "total_bars": session.tempo_map.total_bars,
+            "total_duration_s": session.tempo_map.total_duration_s,
+            "sections": [
+                {
+                    "label": m.label,
+                    "bar_number": m.bar_number,
+                    "timestamp_s": m.time_s,
+                    "beat_position": m.beat_position,
+                    "energy_level": m.energy_level,
+                    "tempo_bpm": m.tempo_bpm,
+                    "color": m.color,
+                }
+                for m in session.markers
+            ],
+        }
+        zf.writestr(
+            f"{session_name}/arrangement.json",
+            json.dumps(arrangement_data, indent=2),
         )
 
         # lyrics.txt
@@ -384,11 +536,11 @@ def export_session_zip(
             session.project.lyrics,
         )
 
-        # MIDI files
+        # MIDI files — professional naming convention
         if session.chord_midi_bytes:
-            zf.writestr(f"{session_name}/midi/chord_progression.mid", session.chord_midi_bytes)
+            zf.writestr(f"{session_name}/midi/01_Chords.mid", session.chord_midi_bytes)
         if session.melody_midi_bytes:
-            zf.writestr(f"{session_name}/midi/melody_guide.mid", session.melody_midi_bytes)
+            zf.writestr(f"{session_name}/midi/02_Melody.mid", session.melody_midi_bytes)
 
         # Stems — professional naming
         _STEM_NAMES = {
@@ -455,15 +607,22 @@ STEM FILES
 
 MIDI FILES
 ----------
-  midi/chord_progression.mid  — Chord changes for this session
-  midi/melody_guide.mid        — Melodic guide in the detected key
+  midi/01_Chords.mid  — Chord changes (velocity-varied by section)
+  midi/02_Melody.mid  — Melodic guide in the detected key (C4-C6 range)
+
+ARRANGEMENT FILES
+-----------------
+  arrangement.json          — Full arrangement with bar numbers, timestamps, energy
+  arrangement_markers.json  — Legacy format (same data)
+  tempo_map.json            — Beat grid and timing reference
 
 IMPORT TIPS
 -----------
 • Set your DAW project tempo to {session.project.bpm} BPM before importing stems
-• Use arrangement_markers.json to set session markers automatically
+• Use arrangement.json to set session markers automatically
 • All stems are time-aligned from bar 1, beat 1
-• Import chord_progression.mid to a MIDI instrument track for harmonic reference
+• Import midi/01_Chords.mid to a MIDI instrument track for harmonic reference
+• Import midi/02_Melody.mid as a melodic phrase reference
 
 Generated by SonicFlow Studio — AI Remix Production System
 """

@@ -13,6 +13,7 @@ Public API:
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Optional
 
@@ -135,84 +136,118 @@ DO NOT write generic AI lyrics. Every line must be:
 
 # ── Variant generation ────────────────────────────────────────────────────────
 
+def _generate_single_variant(
+    genre_name: str,
+    request: RemixVariantRequest,
+    openai_client,
+    model: str,
+) -> Optional[RemixVariant]:
+    """Generate a single remix variant for one genre. Returns None on failure."""
+    genre = get_genre(genre_name)
+    try:
+        sys_p, usr_p = build_remix_prompt(
+            genre=genre,
+            locked_chorus=request.locked_chorus,
+            cadence_profile=request.cadence_profile,
+            controls=request.controls,
+            theme=request.theme,
+            artists=request.artists,
+            bars=request.bars,
+            language=request.language,
+        )
+
+        resp = openai_client.chat.completions.create(
+            model=model,
+            temperature=0.85,
+            max_tokens=1200,
+            messages=[
+                {"role": "system", "content": sys_p},
+                {"role": "user",   "content": usr_p},
+            ],
+        )
+        lyrics = resp.choices[0].message.content.strip()
+
+        # Ensure locked chorus is present verbatim
+        if request.locked_chorus and "[Chorus]" in lyrics:
+            lyrics = _inject_locked_chorus(lyrics, request.locked_chorus)
+
+        suno_tags = build_suno_genre_tags(
+            genre_name=genre_name,
+            controls=request.controls,
+            audio_analysis=request.audio_analysis,
+            artist_style=request.artists[0] if request.artists else "",
+            language=request.language,
+        )
+
+        style_notes = (
+            f"{genre.name} remix: {genre.groove}, ~{genre.bpm_midpoint:.0f} BPM, "
+            f"{genre.vocal_style}"
+        ) if genre else f"{genre_name} remix"
+
+        cadence_score = _estimate_cadence_match(lyrics, request.cadence_profile)
+
+        variant = RemixVariant(
+            genre=genre.name if genre else genre_name,
+            lyrics=lyrics,
+            locked_chorus=request.locked_chorus,
+            suno_tags=suno_tags,
+            style_notes=style_notes,
+            instrumentation=genre.instrumentation[:4] if genre else [],
+            bpm_target=genre.bpm_midpoint if genre else 120.0,
+            cadence_match_score=cadence_score,
+        )
+        print(f"[REMIX] {genre_name} variant complete — {len(lyrics.splitlines())} lines", flush=True)
+        return variant
+
+    except Exception as exc:
+        print(f"[REMIX] Failed for genre {genre_name!r}: {exc}", flush=True)
+        return None
+
+
 def generate_remix_variants(
     request: RemixVariantRequest,
     openai_client=None,
     model: str = "gpt-4o-mini",
 ) -> list[RemixVariant]:
     """
-    Generate one remix variant per target genre.
-    Uses the OpenAI client directly for clean separation from the RAG pipeline.
-    Falls back gracefully if a genre is unknown.
+    Generate one remix variant per target genre, executed in PARALLEL.
+    Results are returned in the same order as request.target_genres.
+    If one variant fails, it is logged and skipped — others are returned.
     """
     if openai_client is None:
         from openai import OpenAI
         openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    variants: list[RemixVariant] = []
+    target_genres = request.target_genres
+    n = len(target_genres)
 
-    for genre_name in request.target_genres:
-        genre = get_genre(genre_name)
+    # Map: future → original index so we can restore insertion order
+    future_to_idx: dict = {}
 
-        try:
-            sys_p, usr_p = build_remix_prompt(
-                genre=genre,
-                locked_chorus=request.locked_chorus,
-                cadence_profile=request.cadence_profile,
-                controls=request.controls,
-                theme=request.theme,
-                artists=request.artists,
-                bars=request.bars,
-                language=request.language,
+    with ThreadPoolExecutor(max_workers=min(n, 5)) as executor:
+        for idx, genre_name in enumerate(target_genres):
+            future = executor.submit(
+                _generate_single_variant,
+                genre_name,
+                request,
+                openai_client,
+                model,
             )
+            future_to_idx[future] = idx
 
-            resp = openai_client.chat.completions.create(
-                model=model,
-                temperature=0.85,
-                max_tokens=1200,
-                messages=[
-                    {"role": "system", "content": sys_p},
-                    {"role": "user",   "content": usr_p},
-                ],
-            )
-            lyrics = resp.choices[0].message.content.strip()
+        # Collect completed results preserving ORDER
+        results: dict[int, Optional[RemixVariant]] = {}
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                results[idx] = future.result()
+            except Exception as exc:
+                genre_name = target_genres[idx]
+                print(f"[REMIX] Unexpected error for genre {genre_name!r}: {exc}", flush=True)
+                results[idx] = None
 
-            # Ensure locked chorus is present verbatim
-            if request.locked_chorus and "[Chorus]" in lyrics:
-                lyrics = _inject_locked_chorus(lyrics, request.locked_chorus)
-
-            suno_tags = build_suno_genre_tags(
-                genre_name=genre_name,
-                controls=request.controls,
-                audio_analysis=request.audio_analysis,
-                artist_style=request.artists[0] if request.artists else "",
-                language=request.language,
-            )
-
-            style_notes = (
-                f"{genre.name} remix: {genre.groove}, ~{genre.bpm_midpoint:.0f} BPM, "
-                f"{genre.vocal_style}"
-            ) if genre else f"{genre_name} remix"
-
-            cadence_score = _estimate_cadence_match(lyrics, request.cadence_profile)
-
-            variants.append(RemixVariant(
-                genre=genre.name if genre else genre_name,
-                lyrics=lyrics,
-                locked_chorus=request.locked_chorus,
-                suno_tags=suno_tags,
-                style_notes=style_notes,
-                instrumentation=genre.instrumentation[:4] if genre else [],
-                bpm_target=genre.bpm_midpoint if genre else 120.0,
-                cadence_match_score=cadence_score,
-            ))
-
-            print(f"[REMIX] {genre_name} variant complete — {len(lyrics.splitlines())} lines", flush=True)
-
-        except Exception as exc:
-            print(f"[REMIX] Failed for genre {genre_name!r}: {exc}", flush=True)
-
-    return variants
+    # Return in original input order, filtering out failures
+    return [results[i] for i in range(n) if results.get(i) is not None]
 
 
 def _inject_locked_chorus(lyrics: str, locked_chorus: str) -> str:

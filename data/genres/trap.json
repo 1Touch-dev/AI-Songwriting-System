@@ -1,0 +1,10 @@
+{
+  "name": "Trap",
+  "tempo_range": [130, 150],
+  "groove": "triplet hi-hats, rolling 808s, snare rolls",
+  "instrumentation": ["808 bass", "trap hi-hats", "snare rolls", "dark piano", "flute melody"],
+  "energy_curve": "slow intro, building tension, explosive chorus drop",
+  "vocal_style": "melodic auto-tune rap, laid-back delivery, Southern drawl",
+  "prompt_tokens": ["trap", "Atlanta trap", "808s", "auto-tune", "street anthem"],
+  "darkness": 0.7, "melodicness": 0.5, "aggression": 0.7, "atmosphere": 0.6, "groove_density": 0.8
+}
