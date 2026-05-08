@@ -104,9 +104,16 @@ export default function LibraryPage() {
     setToken(stored)
     getProjects(stored)
       .then(setProjects)
-      .catch(e => setError(e?.response?.data?.detail || e.message || 'Network error'))
+      .catch(e => {
+        if (e?.response?.status === 401) {
+          localStorage.removeItem(SESSION_TOKEN_KEY)
+          router.replace('/login')
+          return
+        }
+        setError(e?.response?.data?.detail || e.message || 'Could not reach the API')
+      })
       .finally(() => setLoading(false))
-  }, [])
+  }, [router])
 
   const handleDelete = async (id: string) => {
     setDeletingId(id)

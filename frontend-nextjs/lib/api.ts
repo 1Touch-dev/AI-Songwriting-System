@@ -8,6 +8,17 @@ const client = axios.create({
   timeout: 600_000,
 })
 
+// On any 401, clear local token so auth guard redirects to /login on next navigation
+client.interceptors.response.use(
+  res => res,
+  err => {
+    if (err?.response?.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('sonicflow_token')
+    }
+    return Promise.reject(err)
+  },
+)
+
 export async function login(email: string, password: string): Promise<{ token: string }> {
   const res = await client.post('/login', { email, password })
   return res.data

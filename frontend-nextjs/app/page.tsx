@@ -398,6 +398,19 @@ export default function StudioPage() {
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_TOKEN_KEY)
     if (!stored) { router.replace('/login'); return }
+
+    // Validate token against backend — if invalid/expired, force re-login
+    import('@/lib/api').then(({ BASE_URL }) => {
+      fetch(`${BASE_URL}/projects`, { headers: { Authorization: `Bearer ${stored}` } })
+        .then(r => {
+          if (r.status === 401) {
+            localStorage.removeItem(SESSION_TOKEN_KEY)
+            router.replace('/login')
+          }
+        })
+        .catch(() => { /* offline — proceed optimistically */ })
+    })
+
     setToken(stored)
     try {
       const savedResult = localStorage.getItem(STUDIO_RESULT_KEY)
