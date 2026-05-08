@@ -301,6 +301,75 @@ Respond ONLY with the corrected [Chorus].
         except:
             return chorus
 
+    def enforce_syllable_consistency(self, lyrics: str, target_avg: float = 0, tolerance: float = 3.0) -> tuple:
+        """
+        Check syllable consistency across verse lines.
+        Returns (lyrics, report) where report contains violations.
+        """
+        from services.cadence_analysis import count_syllables, line_syllables
+
+        raw_lines = lyrics.split('\n')
+        verse_lines = []
+        violations = []
+
+        for line in raw_lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('['):
+                verse_lines.append(stripped)
+
+        if not verse_lines:
+            return lyrics, {'consistent': True, 'violations': []}
+
+        syllable_counts = [line_syllables(l) for l in verse_lines]
+        avg = sum(syllable_counts) / len(syllable_counts) if syllable_counts else 0
+        target = target_avg if target_avg > 0 else avg
+
+        for i, (line, count) in enumerate(zip(verse_lines, syllable_counts)):
+            deviation = abs(count - target)
+            if deviation > tolerance and count > 2:
+                violations.append({
+                    'line': line,
+                    'syllables': count,
+                    'target': round(target),
+                    'deviation': round(deviation, 1)
+                })
+
+        report = {
+            'consistent': len(violations) == 0,
+            'avg_syllables': round(avg, 1),
+            'violations': violations,
+            'violation_count': len(violations)
+        }
+        return lyrics, report
+
+    def check_rhyme_alignment(self, lyrics: str) -> dict:
+        """Check if verse lines have rhyme alignment."""
+        from services.cadence_analysis import extract_cadence
+        try:
+            profile = extract_cadence(lyrics)
+            return {
+                'rhyme_scheme': profile.rhyme.scheme,
+                'rhyme_density': profile.rhyme.rhyme_density,
+                'internal_rhyme_density': profile.rhyme.internal_rhyme_density,
+                'flow_density': profile.flow.density,
+                'stress_style': profile.flow.stress_style,
+            }
+        except Exception:
+            return {'rhyme_scheme': 'unknown', 'rhyme_density': 0}
+
+    def producer_mode_validate(self, lyrics: str, locked_chorus: str = "", target_syllable_avg: float = 0) -> tuple:
+        """
+        Full producer-mode validation: standard validate_and_fix + syllable + rhyme checks.
+        Returns (validated_lyrics, metadata_dict).
+        """
+        validated = self.validate_and_fix(lyrics, locked_chorus=locked_chorus)
+        _, syllable_report = self.enforce_syllable_consistency(validated, target_avg=target_syllable_avg)
+        rhyme_report = self.check_rhyme_alignment(validated)
+        return validated, {
+            'syllable_report': syllable_report,
+            'rhyme_report': rhyme_report,
+        }
+
     def validate_and_fix(self, lyrics: str, locked_chorus: str = "") -> str:
         """
         Full song validator pass. Hardened locked-chorus preservation:

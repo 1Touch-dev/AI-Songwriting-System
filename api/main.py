@@ -24,22 +24,49 @@ Intelligence Layer (Phase 4):
   POST /analyse-production   → ProductionAnalysis (AI producer assistant)
 """
 import base64
+import concurrent.futures
+import hashlib
 import json
 import os
 import re
 import sys
+import threading
 import time
+import time as _time
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, BackgroundTasks, Form
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    _RATE_LIMIT_AVAILABLE = True
+except ImportError:
+    _RATE_LIMIT_AVAILABLE = False
+    print("[API] slowapi not available — rate limiting disabled", flush=True)
+
+# ── JWT auth ──────────────────────────────────────────────────────────────────
+try:
+    from jose import jwt as _jose_jwt, JWTError
+    from passlib.context import CryptContext as _CryptContext
+    _JWT_AVAILABLE = True
+    _pwd_context = _CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _JWT_SECRET = os.getenv("JWT_SECRET", "sonicflow-jwt-secret-key-v1")
+    _JWT_ALGORITHM = "HS256"
+    _JWT_EXPIRY_HOURS = 24
+except ImportError:
+    _JWT_AVAILABLE = False
+    print("[API] python-jose/passlib not available — using static token", flush=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -77,7 +104,7 @@ from services.remix_engine import RemixVariantRequest, generate_remix_variants
 from services.daw_export import build_daw_session, export_session_zip, DAWSessionRequest
 from services.producer_assistant import analyse_production
 
-app = FastAPI(title="SonicFlow Studio API", version="5.0.0")
+app = FastAPI(title="SonicFlow Studio API", version="5.2.0")
 
 # NOTE: StaticFiles removed — stem audio served via /stems/{job_id}/audio/{stem_name}
 # so FastAPI CORS middleware applies and browser can play cross-origin audio.
@@ -90,6 +117,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Rate limiter setup ────────────────────────────────────────────────────────
+if _RATE_LIMIT_AVAILABLE:
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+else:
+    limiter = None
+
 _pipeline: Optional[SongwritingPipeline] = None
 
 def get_pipeline() -> SongwritingPipeline:
@@ -101,13 +136,33 @@ def get_pipeline() -> SongwritingPipeline:
 
 # ── Auth ──────────────────────────────────────────────────────────────────
 STUDIO_USERS  = {"admin@studio.com": "admins"}
-SESSION_TOKEN = "sonicflow-studio-session-v3"
+SESSION_TOKEN = "sonicflow-studio-session-v3"  # kept for backward compat
+
+def _create_access_token(data: dict) -> str:
+    """Create a JWT access token with 24h expiry."""
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(hours=_JWT_EXPIRY_HOURS)
+    to_encode.update({"exp": expire})
+    return _jose_jwt.encode(to_encode, _JWT_SECRET, algorithm=_JWT_ALGORITHM)
 
 def verify_token(authorization: str = Header(default="")) -> str:
     token = authorization.replace("Bearer ", "").strip()
-    if token != SESSION_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
-    return token
+
+    # 1. Backward compat: static session token still accepted
+    if token == SESSION_TOKEN:
+        return token
+
+    # 2. JWT verification (if available)
+    if _JWT_AVAILABLE and token:
+        try:
+            payload = _jose_jwt.decode(token, _JWT_SECRET, algorithms=[_JWT_ALGORITHM])
+            email = payload.get("sub")
+            if email:
+                return email
+        except JWTError:
+            pass
+
+    raise HTTPException(status_code=401, detail="Invalid or missing token")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────
@@ -141,6 +196,9 @@ class GenerateResponse(BaseModel):
     output_mode: str
     timestamp: str
     chorus_preserved: Optional[bool] = None
+    music_job_id: Optional[str] = None
+    cadence_meta: Optional[dict] = None
+    suno_style_tags: Optional[str] = None
 
 class ChorusExtractRequest(BaseModel):
     lyrics: str
@@ -247,27 +305,171 @@ def _extract_chorus_from_lyrics(lyrics: str) -> str:
 # Replaced with real audio intelligence from services/audio_analysis.py
 
 _audio_analysis_cache: dict[str, object] = {}  # hash → AudioAnalysis
+_AUDIO_CACHE_MAX = 20  # max entries before FIFO eviction
+
+def _evict_audio_cache() -> None:
+    """Keep cache under max size — simple FIFO eviction."""
+    if len(_audio_analysis_cache) > _AUDIO_CACHE_MAX:
+        oldest_keys = list(_audio_analysis_cache.keys())[:-_AUDIO_CACHE_MAX]
+        for k in oldest_keys:
+            del _audio_analysis_cache[k]
+
 
 def _analyze_instrumental(file_bytes: bytes, filename: str) -> str:
     """
     Real audio analysis using services/audio_analysis.py.
     Returns a rich prompt hint string; caches result by content hash.
     """
-    import hashlib
     key = hashlib.md5(file_bytes[:65536]).hexdigest()
     if key in _audio_analysis_cache:
         return _audio_analysis_cache[key].prompt_hint
 
     analysis = analyze_audio(file_bytes, filename)
+    _evict_audio_cache()
     _audio_analysis_cache[key] = analysis
     return analysis.prompt_hint
+
+
+# ── Async music generation job queue ─────────────────────────────────────
+_music_jobs: dict[str, dict] = {}  # job_id → {status, audio_b64, error, created_at}
+_music_executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+
+def _submit_music_job(pipeline, lyrics: str, style_tags: str, theme: str) -> str:
+    """Submit Suno generation to background thread pool. Returns job_id."""
+    job_id = uuid.uuid4().hex[:16]
+    _music_jobs[job_id] = {
+        "status": "processing",
+        "audio_b64": None,
+        "error": None,
+        "created_at": _time.time(),
+    }
+
+    def _run():
+        try:
+            music_bytes = pipeline.music_gen.run_full_generation(lyrics, style_tags, theme)
+            if music_bytes:
+                _music_jobs[job_id]["audio_b64"] = base64.b64encode(music_bytes).decode()
+                _music_jobs[job_id]["status"] = "done"
+            else:
+                _music_jobs[job_id]["status"] = "failed"
+                _music_jobs[job_id]["error"] = "Music backend returned no audio"
+        except Exception as exc:
+            _music_jobs[job_id]["status"] = "failed"
+            _music_jobs[job_id]["error"] = str(exc)
+            print(f"[MUSIC_JOB] {job_id} failed: {exc}", flush=True)
+
+    _music_executor.submit(_run)
+    return job_id
+
+
+# ── Intelligence Layer helpers ─────────────────────────────────────────────
+
+def _build_structured_suno_tags(
+    artists: list,
+    language: str,
+    genre_profile=None,
+    blended_genre=None,
+    controls=None,
+    audio_analysis_obj=None,
+    cadence_constraints: str = "",
+    structure: str = "",
+) -> str:
+    """Build a rich structured Suno orchestration block replacing simple tags."""
+    lines = []
+
+    # Genre
+    if blended_genre:
+        lines.append(f"[Genre]\n{blended_genre.primary} + {blended_genre.secondary} blend")
+        lines.append(f"[Instrumentation]\n{', '.join(blended_genre.instrumentation[:5])}")
+        lines.append(f"[BPM]\n{blended_genre.bpm:.0f}")
+        lines.append(f"[Vocal Style]\n{blended_genre.vocal_style}")
+    elif genre_profile:
+        lines.append(f"[Genre]\n{genre_profile.name}")
+        lines.append(f"[Instrumentation]\n{', '.join(genre_profile.instrumentation[:5])}")
+        lines.append(f"[BPM]\n{genre_profile.bpm_midpoint:.0f}")
+        lines.append(f"[Vocal Style]\n{genre_profile.vocal_style}")
+
+    # Audio analysis
+    if audio_analysis_obj and audio_analysis_obj.error is None:
+        lines.append(f"[Key]\n{audio_analysis_obj.harmonic.key}")
+        if audio_analysis_obj.beat.bpm > 10:
+            lines.append(f"[BPM]\n{audio_analysis_obj.beat.bpm:.0f}")
+        if audio_analysis_obj.cadence.flow_descriptors:
+            lines.append(f"[Cadence]\n{', '.join(audio_analysis_obj.cadence.flow_descriptors)}")
+
+    # Artist
+    if artists:
+        lines.append(f"[Style Reference]\n{' + '.join(artists[:2])} inspired")
+
+    # Producer controls
+    if controls:
+        mods = controls.to_suno_modifiers()
+        if mods:
+            lines.append(f"[Production]\n{', '.join(mods)}")
+
+    # Structure
+    if structure:
+        lines.append(f"[Structure]\n{structure}")
+
+    # Language
+    if language and language.lower() != "english":
+        lines.append(f"[Language]\n{language}")
+
+    return "\n\n".join(lines) if lines else f"{', '.join(artists[:1])} style, {language}"
+
+
+# ── Background cleanup worker ─────────────────────────────────────────────
+
+def _cleanup_worker():
+    while True:
+        _time.sleep(3600)  # run hourly
+        try:
+            # Clean old stems
+            try:
+                from services.stem_extractor import cleanup_old_stems
+                cleanup_old_stems()
+            except Exception:
+                pass
+            # Clean temp files
+            for p in Path("/tmp").glob("sonicflow_*"):
+                try:
+                    if p.stat().st_mtime < _time.time() - 3600:
+                        p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            # Evict stale music jobs (older than 2 hours)
+            cutoff = _time.time() - 7200
+            stale = [jid for jid, j in list(_music_jobs.items()) if j.get("created_at", 0) < cutoff]
+            for jid in stale:
+                _music_jobs.pop(jid, None)
+        except Exception as e:
+            print(f"[CLEANUP] Error: {e}", flush=True)
+
+_cleanup_thread = threading.Thread(target=_cleanup_worker, daemon=True)
+_cleanup_thread.start()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "5.1.0", "ffmpeg": is_ffmpeg_available(), "intelligence_layer": True}
+    return {"status": "ok", "version": "5.2.0", "ffmpeg": is_ffmpeg_available(), "intelligence_layer": True, "rate_limiting": _RATE_LIMIT_AVAILABLE, "jwt_auth": _JWT_AVAILABLE}
+
+
+@app.get("/music-status/{job_id}")
+def music_status(job_id: str, token: str = Depends(verify_token)):
+    """Get status of an async music generation job."""
+    job = _music_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Music job {job_id} not found")
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "audio_b64": job.get("audio_b64"),
+        "error": job.get("error"),
+        "elapsed_s": int(_time.time() - job.get("created_at", _time.time())),
+    }
 
 
 @app.get("/audio/{filename}")
@@ -285,7 +487,12 @@ def login(req: LoginRequest):
     expected_pw = STUDIO_USERS.get(req.email.lower().strip())
     if expected_pw is None or req.password != expected_pw:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return {"token": SESSION_TOKEN}
+    # Issue JWT if available, else fall back to static token
+    if _JWT_AVAILABLE:
+        token = _create_access_token({"sub": req.email.lower().strip()})
+    else:
+        token = SESSION_TOKEN
+    return {"token": token}
 
 
 @app.get("/artists/search")
@@ -423,6 +630,7 @@ def stems_status(job_id: str, token: str = Depends(verify_token)):
 # ── Main generation endpoint — accepts multipart form with optional instrumental ──
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(
+    request: Request,
     # JSON payload as a form field
     payload: str = Form(...),
     # Optional instrumental file
@@ -434,6 +642,13 @@ async def generate(
       - payload: JSON string with all generation params
       - instrumental: optional MP3/WAV file to guide lyric style
     """
+    # Apply rate limiting if available
+    if _RATE_LIMIT_AVAILABLE and limiter:
+        try:
+            await limiter._check_request_limit(request, "10/minute", None)
+        except Exception:
+            pass  # rate limit errors handled by exception handler
+
     try:
         req_data = json.loads(payload)
     except Exception:
@@ -523,6 +738,88 @@ async def generate(
         locked_chorus = _extract_chorus_from_lyrics(reference_lyrics)
         print(f"[API] Auto-extracted chorus ({len(locked_chorus)} chars)", flush=True)
 
+    # ── Intelligence Layer: cadence, genre, producer controls ─────────────
+    cadence_constraints: str = ""
+    genre_tags_str: str = ""
+    producer_controls_desc_str: str = ""
+    suno_style_tags: str = ""
+
+    target_genre = req_data.get("target_genre", "")
+    genre_blend_data = req_data.get("genre_blend", {})
+    producer_controls_data = req_data.get("producer_controls", {})
+
+    genre_profile = None
+    blended_genre = None
+    controls = None
+
+    if producer_controls_data:
+        try:
+            controls = resolve_producer_controls(producer_controls_data)
+        except Exception as _e:
+            print(f"[API] Producer controls error: {_e}", flush=True)
+
+    if genre_blend_data.get("primary") and genre_blend_data.get("secondary"):
+        try:
+            blended_genre = _blend_genres(
+                genre_blend_data["primary"],
+                genre_blend_data["secondary"],
+                float(genre_blend_data.get("weight", 0.5))
+            )
+            genre_tags_str = blended_genre.suno_tags
+        except Exception as _e:
+            print(f"[API] Genre blend error: {_e}", flush=True)
+    elif target_genre:
+        try:
+            genre_profile = get_genre(target_genre)
+            genre_tags_str = build_suno_genre_tags(
+                genre_name=target_genre,
+                controls=controls,
+                audio_analysis=None,
+                artist_style=artists[0] if artists else "",
+                language=language,
+            )
+        except Exception as _e:
+            print(f"[API] Genre tags error: {_e}", flush=True)
+
+    cadence_source = reference_lyrics or locked_chorus
+    if cadence_source and len(cadence_source.strip()) > 30:
+        try:
+            _cadence_profile = extract_cadence(cadence_source)
+            cadence_constraints = _cadence_profile.constraint_block
+        except Exception as _e:
+            print(f"[API] Cadence extraction error: {_e}", flush=True)
+
+    if controls:
+        try:
+            producer_controls_desc_str = controls.describe()
+        except Exception as _e:
+            print(f"[API] Producer controls describe error: {_e}", flush=True)
+    elif producer_mode:
+        try:
+            from services.genre_engine import ProducerControls as _PC
+            producer_controls_desc_str = _PC(darkness=0.5, melodicness=0.6, aggression=0.5, atmosphere=0.6, groove_density=0.5).describe()
+        except Exception as _e:
+            print(f"[API] Default producer controls error: {_e}", flush=True)
+
+    # Resolve audio analysis object for suno tags
+    _audio_obj = None
+    if instrumental_bytes:
+        _cache_key = hashlib.md5(instrumental_bytes[:65536]).hexdigest()
+        _audio_obj = _audio_analysis_cache.get(_cache_key)
+
+    suno_style_tags = _build_structured_suno_tags(
+        artists=artists,
+        language=language,
+        genre_profile=genre_profile,
+        blended_genre=blended_genre,
+        controls=controls,
+        audio_analysis_obj=_audio_obj,
+        cadence_constraints=cadence_constraints,
+        structure=structure_str,
+    )
+
+    print(f"[API] Intelligence layer: genre_tags={genre_tags_str[:60]!r} cadence_constraints={bool(cadence_constraints)} producer_desc={bool(producer_controls_desc_str)}", flush=True)
+
     # ── Step 1: Lyrics ────────────────────────────────────────────────────
     try:
         res = pipeline.run(
@@ -544,6 +841,10 @@ async def generate(
             producer_mode=producer_mode,
             instrumental_hint=instrumental_hint,
             mode=section_mode,
+            cadence_constraints=cadence_constraints,
+            genre_tags=genre_tags_str,
+            producer_controls_desc=producer_controls_desc_str,
+            suno_style_tags=suno_style_tags,
         )
     except Exception as e:
         traceback.print_exc()
@@ -553,14 +854,13 @@ async def generate(
 
     # ── Post-process: force-inject locked chorus verbatim ─────────────────
     if locked_chorus and "[Chorus]" in lyrics:
-        import re as _re
         def _replace_chorus(m):
             return f"[Chorus]\n{locked_chorus.strip()}"
-        lyrics = _re.sub(
+        lyrics = re.sub(
             r"\[Chorus[^\]]*\]\n.*?(?=\n\[|\Z)",
             _replace_chorus,
             lyrics,
-            flags=_re.DOTALL,
+            flags=re.DOTALL,
         )
         print("[API] Locked chorus force-injected into all [Chorus] sections.", flush=True)
 
@@ -587,22 +887,34 @@ async def generate(
             voice_error = str(e)
             print(f"[API] Voice error: {e}")
 
-    # ── Step 3: Music generation ───────────────────────────────────────────
+    # ── Step 3: Music generation (async for music_demo/producer) ──────────
     music_bytes: Optional[bytes] = None
     music_error: Optional[str]  = None
+    music_job_id: Optional[str] = None
+
+    # Use suno_style_tags for richer Suno prompts
+    effective_style_tags = suno_style_tags or f"{', '.join(artists[:2])} style, {language}"
+
     if enable_music:
         try:
-            style_tags  = f"{artists[0]} style, {language}"
-            music_bytes = pipeline.music_gen.run_full_generation(
-                lyrics, style_tags, res.get("theme", theme)
-            )
-            if not music_bytes:
-                mg = pipeline.music_gen
-                music_error = (
-                    "Music backend disabled (no API keys)"
-                    if mg.backend == "disabled"
-                    else "All music backends failed — check Suno credits"
+            if output_mode in ("music_demo", "producer"):
+                # Submit async to avoid blocking uvicorn worker
+                music_job_id = _submit_music_job(
+                    pipeline, lyrics, effective_style_tags, res.get("theme", theme)
                 )
+                print(f"[API] Music job submitted async: {music_job_id}", flush=True)
+                music_error = None  # job is running in background
+            else:
+                music_bytes = pipeline.music_gen.run_full_generation(
+                    lyrics, effective_style_tags, res.get("theme", theme)
+                )
+                if not music_bytes:
+                    mg = pipeline.music_gen
+                    music_error = (
+                        "Music backend disabled (no API keys)"
+                        if mg.backend == "disabled"
+                        else "All music backends failed — check Suno credits"
+                    )
         except Exception as e:
             music_error = str(e)
             print(f"[API] Music error: {e}")
@@ -659,6 +971,22 @@ async def generate(
             print(f"[API] chorus_preserved={chorus_preserved} "
                   f"({len(locked_lines)} locked lines checked)", flush=True)
 
+    # ── Cadence metadata for response ─────────────────────────────────────
+    cadence_meta: Optional[dict] = None
+    if lyrics:
+        try:
+            _cp = extract_cadence(lyrics)
+            cadence_meta = {
+                "rhyme_scheme": _cp.rhyme.scheme,
+                "rhyme_density": _cp.rhyme.rhyme_density,
+                "avg_syllables_per_line": _cp.phrase.avg_syllables_per_line,
+                "flow_density": _cp.flow.density,
+                "stress_style": _cp.flow.stress_style,
+                "phrase_momentum": _cp.flow.phrase_momentum,
+            }
+        except Exception:
+            pass
+
     def to_b64(b: Optional[bytes]) -> Optional[str]:
         return base64.b64encode(b).decode() if b else None
 
@@ -684,6 +1012,9 @@ async def generate(
         output_mode=output_mode,
         timestamp=datetime.now().strftime("%H:%M:%S"),
         chorus_preserved=chorus_preserved,
+        music_job_id=music_job_id,
+        cadence_meta=cadence_meta,
+        suno_style_tags=suno_style_tags or None,
     )
 
 
@@ -809,7 +1140,7 @@ async def analyze_track(
 # ── GET /genres ───────────────────────────────────────────────────────────────
 
 @app.get("/genres")
-def get_genres(token: str = Depends(verify_token)):
+def get_genres(request: Request, token: str = Depends(verify_token)):
     """List all available genre profiles."""
     genres = []
     for name in list_genres():
@@ -827,7 +1158,7 @@ class BlendGenresRequest(BaseModel):
     weight: float = 0.5    # 0=all primary, 1=all secondary
 
 @app.post("/blend-genres")
-def blend_genres_endpoint(req: BlendGenresRequest, token: str = Depends(verify_token)):
+def blend_genres_endpoint(req: BlendGenresRequest, request: Request, token: str = Depends(verify_token)):
     """Blend two genres into a weighted hybrid."""
     try:
         result = _blend_genres(req.primary, req.secondary, req.weight)
@@ -842,7 +1173,7 @@ class ExtractCadenceRequest(BaseModel):
     lyrics: str
 
 @app.post("/extract-cadence")
-def extract_cadence_endpoint(req: ExtractCadenceRequest, token: str = Depends(verify_token)):
+def extract_cadence_endpoint(req: ExtractCadenceRequest, request: Request, token: str = Depends(verify_token)):
     """Extract cadence profile from lyrics for flow transfer."""
     profile = extract_cadence(req.lyrics)
     return {
@@ -935,6 +1266,9 @@ class DAWSessionApiRequest(BaseModel):
     voice_audio_b64: Optional[str] = None
     music_audio_b64: Optional[str] = None
     mix_audio_b64: Optional[str] = None
+    genre_data: Optional[dict] = None           # genre profile or blend data
+    cadence_data: Optional[dict] = None         # cadence profile
+    audio_analysis_data: Optional[dict] = None  # BPM/key/chords from audio analysis
 
 @app.post("/generate-daw-session")
 async def generate_daw_session(
@@ -943,10 +1277,9 @@ async def generate_daw_session(
 ):
     """
     Build and download a full DAW session ZIP:
-    stems, MIDI, arrangement markers, project.json, lyrics, README.
+    stems, MIDI, arrangement markers, project.json, lyrics, README,
+    and optional intelligence metadata (genre, cadence, audio analysis).
     """
-    from fastapi.responses import Response
-
     daw_req = DAWSessionRequest(
         title=req.title,
         artist=req.artist,
@@ -959,6 +1292,9 @@ async def generate_daw_session(
         bars=req.bars,
         darkness=req.darkness,
         chords=req.chords,
+        genre_data=req.genre_data,
+        cadence_data=req.cadence_data,
+        audio_analysis_data=req.audio_analysis_data,
     )
 
     session = build_daw_session(daw_req)
@@ -981,6 +1317,9 @@ async def generate_daw_session(
         voice_bytes=voice_bytes,
         music_bytes=music_bytes,
         mix_bytes=mix_bytes,
+        genre_data=req.genre_data,
+        cadence_data=req.cadence_data,
+        audio_analysis_data=req.audio_analysis_data,
     )
 
     safe_name = re.sub(r"[^\w\-]", "_", req.title)[:32]

@@ -265,10 +265,16 @@ def blend_genres(
     vocal_style = f"{p.vocal_style} with {s.name.lower()} influence" if w < 0.5 \
         else f"{s.vocal_style} with {p.name.lower()} influence"
 
-    # Merged prompt tokens (deduplicated)
-    seen = set()
-    tokens = []
-    for t in (p.prompt_tokens + s.prompt_tokens):
+    # Merged prompt tokens (deduplicated, weight-ordered so dominant genre appears first)
+    seen: set = set()
+    tokens: list = []
+    if w >= 0.5:
+        # secondary genre dominates — put secondary tokens first
+        ordered_tokens = s.prompt_tokens + p.prompt_tokens
+    else:
+        # primary genre dominates — put primary tokens first
+        ordered_tokens = p.prompt_tokens + s.prompt_tokens
+    for t in ordered_tokens:
         if t not in seen:
             seen.add(t)
             tokens.append(t)

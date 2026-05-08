@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { GenerateParams, GenerateResult, GlobalArtists } from './types'
+import type { GenerateParams, GenerateResult, GlobalArtists, CadenceMeta } from './types'
 
 export const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -267,5 +267,16 @@ export async function analyseProduction(
     { lyrics, theme, artists, use_llm: useLlm },
     { headers: { Authorization: `Bearer ${token}` }, timeout: 30_000 },
   )
+  return res.data
+}
+
+export async function getMusicJobStatus(
+  token: string,
+  jobId: string,
+): Promise<{ job_id: string; status: string; audio_b64: string | null; error: string | null; elapsed_s: number }> {
+  const res = await client.get(`/music-status/${jobId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10_000,
+  })
   return res.data
 }

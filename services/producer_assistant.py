@@ -306,6 +306,89 @@ def _build_remix_suggestions(tone: str) -> list[RemixSuggestion]:
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
+def _syllable_consistency_score(lyrics: str) -> float:
+    """Compute syllable consistency score from cadence analysis (0-1, 1=perfectly consistent)."""
+    try:
+        profile = extract_cadence(lyrics)
+        all_lines = profile.raw_lines
+        if not all_lines:
+            return 0.5
+        from services.cadence_analysis import line_syllables
+        syl_counts = [line_syllables(l) for l in all_lines if l.strip()]
+        if not syl_counts:
+            return 0.5
+        avg = sum(syl_counts) / len(syl_counts)
+        variance = sum((c - avg) ** 2 for c in syl_counts) / len(syl_counts)
+        std = variance ** 0.5
+        # Normalize: std of 0 = perfect (1.0), std of 5+ = bad (0.0)
+        score = max(0.0, 1.0 - (std / 5.0))
+        return round(score, 2)
+    except Exception:
+        return 0.5
+
+
+def _rhyme_density_score(lyrics: str) -> float:
+    """Extract rhyme density from cadence analysis."""
+    try:
+        profile = extract_cadence(lyrics)
+        return profile.rhyme.rhyme_density
+    except Exception:
+        return 0.0
+
+
+def _cadence_quality(lyrics: str) -> str:
+    """Overall cadence assessment string."""
+    try:
+        profile = extract_cadence(lyrics)
+        parts = []
+        if profile.rhyme.rhyme_density > 0.7:
+            parts.append("strong rhyme structure")
+        elif profile.rhyme.rhyme_density > 0.4:
+            parts.append("moderate rhyme structure")
+        else:
+            parts.append("loose rhyme structure")
+        parts.append(f"{profile.flow.density} flow")
+        parts.append(f"{profile.flow.stress_style} rhythm")
+        return ", ".join(parts)
+    except Exception:
+        return "unknown"
+
+
+def _genre_alignment_score(lyrics: str, genre: str) -> float:
+    """
+    Estimate how well lyrics vocabulary/style aligns with a target genre.
+    Fully deterministic — no LLM call.
+    """
+    if not genre:
+        return 0.5
+
+    _GENRE_VOCAB: dict[str, list] = {
+        "drill": ["gang", "block", "shots", "slide", "opps", "drills", "smoking", "trap", "bando"],
+        "trap": ["hustle", "grind", "money", "racks", "bands", "plug", "dope", "lean", "codeine"],
+        "pop": ["love", "heart", "feel", "dance", "night", "shine", "glow", "together", "forever"],
+        "r&b": ["body", "touch", "feel", "soul", "passion", "desire", "rhythm", "melody", "groove"],
+        "country": ["truck", "road", "whiskey", "rain", "field", "boots", "summer", "hometown"],
+        "edm": ["drop", "beat", "bass", "lights", "floor", "pulse", "rave", "crowd", "glow"],
+        "hip-hop": ["bars", "flow", "rap", "mic", "verse", "rhyme", "beats", "dope", "real"],
+        "acoustic": ["alone", "quiet", "peace", "simple", "warm", "soft", "gentle", "honest"],
+    }
+
+    genre_key = genre.lower().replace("-", " ").replace("_", " ")
+    vocab = None
+    for k, v in _GENRE_VOCAB.items():
+        if k in genre_key or genre_key in k:
+            vocab = v
+            break
+
+    if vocab is None:
+        return 0.5
+
+    lyrics_lower = lyrics.lower()
+    hits = sum(1 for w in vocab if w in lyrics_lower)
+    score = min(1.0, hits / max(3, len(vocab) * 0.4))
+    return round(score, 2)
+
+
 def analyse_production(
     lyrics: str,
     theme: str = "",
@@ -397,6 +480,27 @@ def analyse_production(
         except Exception as exc:
             print(f"[PRODUCER] LLM analysis error: {exc}", flush=True)
 
+    # ── Intelligence Layer: deterministic quality scores ──────────────────
+    syllable_consistency_score = _syllable_consistency_score(lyrics)
+    rhyme_density              = _rhyme_density_score(lyrics)
+    cadence_quality_str        = _cadence_quality(lyrics)
+    genre_alignment_score      = _genre_alignment_score(lyrics, genre)
+
+    # Incorporate these into producer notes
+    if syllable_consistency_score < 0.5:
+        notes.append(f"Syllable inconsistency detected (score {syllable_consistency_score:.0%}) — tighten line lengths")
+    if genre and genre_alignment_score < 0.4:
+        notes.append(f"Genre alignment with {genre!r} is weak ({genre_alignment_score:.0%}) — use more genre-specific vocabulary")
+
+    analysis_data = llm_data or {}
+    # Attach intelligence metadata to llm_analysis dict for API response passthrough
+    analysis_data["intelligence"] = {
+        "syllable_consistency_score": syllable_consistency_score,
+        "rhyme_density": rhyme_density,
+        "cadence_quality": cadence_quality_str,
+        "genre_alignment_score": genre_alignment_score,
+    }
+
     return ProductionAnalysis(
         hook=hook,
         arrangement=arrangement,
@@ -404,5 +508,5 @@ def analyse_production(
         remix_suggestions=remix_sug,
         overall_score=overall,
         producer_notes=notes,
-        llm_analysis=llm_data,
+        llm_analysis=analysis_data if analysis_data else None,
     )

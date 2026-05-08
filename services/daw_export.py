@@ -270,7 +270,30 @@ def _build_chord_midi(
             else:
                 chord_root = root_midi
 
-            for iv in intervals:
+            # Parse chord quality from label suffix to use correct intervals
+            chord_intervals = intervals  # default from session key mode
+            label_lower = chord_label.lower()
+            if 'dim' in label_lower:
+                chord_intervals = [0, 3, 6]
+            elif 'aug' in label_lower:
+                chord_intervals = [0, 4, 8]
+            elif 'maj7' in label_lower or 'major7' in label_lower:
+                chord_intervals = [0, 4, 7, 11]
+            elif 'min7' in label_lower or ('m7' in label_lower and 'maj' not in label_lower):
+                chord_intervals = [0, 3, 7, 10]
+            elif '7' in label_lower and 'maj' not in label_lower and 'dim' not in label_lower:
+                chord_intervals = [0, 4, 7, 10]  # dominant 7
+            elif 'sus4' in label_lower:
+                chord_intervals = [0, 5, 7]
+            elif 'sus2' in label_lower:
+                chord_intervals = [0, 2, 7]
+            elif 'min' in label_lower or (label_lower.endswith('m') and not label_lower.endswith('bm')):
+                chord_intervals = [0, 3, 7]
+            elif 'maj' in label_lower:
+                chord_intervals = [0, 4, 7]
+            # else: use session key default intervals (already set above)
+
+            for iv in chord_intervals:
                 mf.addNote(0, 0, chord_root + iv, beat, sustain_beats, velocity)
 
             # Add marker text if midiutil supports it
@@ -403,6 +426,9 @@ class DAWSessionRequest:
     chords: list[str] = field(default_factory=list)
     stem_paths: dict = field(default_factory=dict)   # {"vocals": path, ...}
     audio_analysis: Optional[object] = None
+    genre_data: Optional[dict] = None           # genre profile or blend data
+    cadence_data: Optional[dict] = None         # cadence profile
+    audio_analysis_data: Optional[dict] = None  # BPM/key/chords from audio analysis
 
 
 def build_daw_session(req: DAWSessionRequest) -> DAWSession:
@@ -476,6 +502,9 @@ def export_session_zip(
     voice_bytes: Optional[bytes] = None,
     music_bytes: Optional[bytes] = None,
     mix_bytes: Optional[bytes] = None,
+    genre_data: Optional[dict] = None,
+    cadence_data: Optional[dict] = None,
+    audio_analysis_data: Optional[dict] = None,
 ) -> bytes:
     """
     Package the full DAW session into a ZIP file.
@@ -492,6 +521,23 @@ def export_session_zip(
             f"{session_name}/project.json",
             json.dumps(session.to_project_json(), indent=2, ensure_ascii=False),
         )
+
+        # ── Intelligence metadata files ──────────────────────────────────────
+        if genre_data:
+            zf.writestr(
+                f"{session_name}/intelligence/genre_metadata.json",
+                json.dumps(genre_data, indent=2, ensure_ascii=False),
+            )
+        if cadence_data:
+            zf.writestr(
+                f"{session_name}/intelligence/cadence_metadata.json",
+                json.dumps(cadence_data, indent=2, ensure_ascii=False),
+            )
+        if audio_analysis_data:
+            zf.writestr(
+                f"{session_name}/intelligence/audio_analysis.json",
+                json.dumps(audio_analysis_data, indent=2, ensure_ascii=False),
+            )
 
         # tempo_map.json
         zf.writestr(

@@ -176,6 +176,10 @@ Respond ONLY with valid JSON:
         chorus_strict: bool = False,
         producer_mode: bool = False,
         instrumental_hint: str = "",
+        cadence_constraints: str = "",    # from cadence_analysis
+        genre_tags: str = "",             # from genre_engine
+        producer_controls_desc: str = "", # from ProducerControls.describe()
+        suno_style_tags: str = "",        # structured Suno orchestration block
     ) -> dict:
         """
         Run the full pipeline and return a result dict.
@@ -214,6 +218,10 @@ Respond ONLY with valid JSON:
             "chorus_strict": chorus_strict,
             "producer_mode": producer_mode,
             "instrumental_hint": instrumental_hint,
+            "cadence_constraints": cadence_constraints,
+            "genre_tags": genre_tags,
+            "producer_controls_desc": producer_controls_desc,
+            "suno_style_tags": suno_style_tags,
         }
 
         # In remix mode, override gen_mode so prompt builder handles it correctly
@@ -307,6 +315,9 @@ Respond ONLY with valid JSON:
             chorus_strict=chorus_strict,
             producer_mode=producer_mode,
             instrumental_hint=instrumental_hint,
+            cadence_constraints=cadence_constraints,
+            genre_tags=genre_tags,
+            producer_controls_desc=producer_controls_desc,
         )
 
         if analysis_mode:
@@ -429,6 +440,11 @@ Respond ONLY with valid JSON:
                 print("[HOOK] Quality floor not met (score < 0.6). Retrying generation once...")
                 retry_input = user_input.copy()
                 retry_input["_is_retry"] = True
+                # Pass intelligence layer params through retry
+                retry_input.setdefault("cadence_constraints", cadence_constraints)
+                retry_input.setdefault("genre_tags", genre_tags)
+                retry_input.setdefault("producer_controls_desc", producer_controls_desc)
+                retry_input.setdefault("suno_style_tags", suno_style_tags)
                 return self.run(**retry_input)
 
         # Final Validation for chosen hook (Post-generation rules)

@@ -1,5 +1,28 @@
 export type OutputMode = 'draft' | 'music_demo' | 'producer'
 
+export interface GenreBlend {
+  primary: string
+  secondary: string
+  weight: number  // 0=all primary, 1=all secondary
+}
+
+export interface ProducerControlsInput {
+  darkness: number
+  melodicness: number
+  aggression: number
+  atmosphere: number
+  groove_density: number
+}
+
+export interface CadenceMeta {
+  rhyme_scheme: string
+  rhyme_density: number
+  avg_syllables_per_line: number
+  flow_density: string
+  stress_style: string
+  phrase_momentum: string
+}
+
 export interface GenerateParams {
   artists: string[]
   theme: string
@@ -20,6 +43,10 @@ export interface GenerateParams {
   section_mode: string         // 'Full Song' | 'Verse Only'
   chorus_strict: boolean
   producer_mode: boolean
+  // Intelligence Layer
+  target_genre?: string
+  genre_blend?: GenreBlend
+  producer_controls?: ProducerControlsInput
 }
 
 export interface StemJob {
@@ -60,6 +87,9 @@ export interface GenerateResult {
   timestamp: string
   audio_metadata: AudioMetadata | null
   chorus_preserved: boolean | null
+  music_job_id?: string | null
+  cadence_meta?: CadenceMeta | null
+  suno_style_tags?: string | null
 }
 
 export interface Project {
