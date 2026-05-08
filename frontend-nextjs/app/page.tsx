@@ -375,7 +375,21 @@ export default function StudioPage() {
   const [dawExporting, setDawExporting] = useState(false)
   const [expandedVariant, setExpandedVariant] = useState<string | null>(null)
 
+  // Sound Design state
+  const [targetGenre, setTargetGenre] = useState('')
+  const [genreBlendEnabled, setGenreBlendEnabled] = useState(false)
+  const [genreBlendPrimary, setGenreBlendPrimary] = useState('trap')
+  const [genreBlendSecondary, setGenreBlendSecondary] = useState('acoustic')
+  const [genreBlendWeight, setGenreBlendWeight] = useState(0.5)
+  const [producerControlsEnabled, setProducerControlsEnabled] = useState(false)
+  const [producerDarkness, setProducerDarkness] = useState(0.5)
+  const [producerMelodicness, setProducerMelodicness] = useState(0.5)
+  const [producerAggression, setProducerAggression] = useState(0.5)
+  const [producerAtmosphere, setProducerAtmosphere] = useState(0.5)
+  const [producerGrooveDensity, setProducerGrooveDensity] = useState(0.5)
+
   const REMIX_GENRE_OPTIONS = ['Drill', 'EDM', 'Afrobeat', 'Synthwave', 'Acoustic', 'Trap']
+  const GENRE_OPTIONS = ['acoustic', 'afrobeat', 'cinematic', 'drill', 'edm', 'house', 'jersey_club', 'kpop', 'punjabi', 'reggaeton', 'synthwave', 'trap']
 
   const set = <K extends keyof StudioState>(key: K) => (val: StudioState[K]) =>
     setState(s => ({ ...s, [key]: val }))
@@ -577,6 +591,19 @@ export default function StudioPage() {
         section_mode: state.sectionMode === 'Verse Only' ? 'Verse Only' : 'Full Song',
         chorus_strict: state.chorusStrict,
         producer_mode: state.outputMode === 'producer' || state.producerMode,
+        target_genre: targetGenre || undefined,
+        genre_blend: genreBlendEnabled ? {
+          primary: genreBlendPrimary,
+          secondary: genreBlendSecondary,
+          weight: genreBlendWeight,
+        } : undefined,
+        producer_controls: producerControlsEnabled ? {
+          darkness: producerDarkness,
+          melodicness: producerMelodicness,
+          aggression: producerAggression,
+          atmosphere: producerAtmosphere,
+          groove_density: producerGrooveDensity,
+        } : undefined,
       }
 
       t1 = setTimeout(() => { markDone('lyrics'); nextStep('voice') }, 3000)
@@ -1359,6 +1386,94 @@ export default function StudioPage() {
               </div>
             </div>
 
+            {/* Sound Design */}
+            <div className="glass-panel p-5 space-y-4">
+              <h2 className="font-display font-semibold text-sm text-text-secondary uppercase tracking-widest">
+                4. Sound Design
+              </h2>
+
+              {/* Target Genre */}
+              <div>
+                <label className="label">Target Genre</label>
+                <select className="select-field" value={targetGenre} onChange={e => setTargetGenre(e.target.value)}>
+                  <option value="">— auto (from artist) —</option>
+                  {GENRE_OPTIONS.map(g => <option key={g} value={g}>{g.replace('_', ' ')}</option>)}
+                </select>
+              </div>
+
+              {/* Genre Blend */}
+              <div>
+                <label className="label flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={genreBlendEnabled} onChange={e => setGenreBlendEnabled(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-lime-400" />
+                  <Blend size={12} style={{ color: '#c3f400' }} />
+                  Genre Blend
+                </label>
+                {genreBlendEnabled && (
+                  <div className="mt-2 space-y-2 pl-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="label text-xs">Primary</label>
+                        <select className="select-field text-xs py-1" value={genreBlendPrimary}
+                          onChange={e => setGenreBlendPrimary(e.target.value)}>
+                          {GENRE_OPTIONS.map(g => <option key={g} value={g}>{g.replace('_', ' ')}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label text-xs">Secondary</label>
+                        <select className="select-field text-xs py-1" value={genreBlendSecondary}
+                          onChange={e => setGenreBlendSecondary(e.target.value)}>
+                          {GENRE_OPTIONS.map(g => <option key={g} value={g}>{g.replace('_', ' ')}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="label flex justify-between text-xs">
+                        Blend Weight
+                        <span style={{ color: '#c3f400' }}>
+                          {genreBlendWeight <= 0.3 ? `${genreBlendPrimary} dominant` :
+                           genreBlendWeight >= 0.7 ? `${genreBlendSecondary} dominant` : 'even mix'}
+                        </span>
+                      </label>
+                      <input type="range" className="w-full" min={0} max={1} step={0.05}
+                        value={genreBlendWeight} onChange={e => setGenreBlendWeight(+e.target.value)} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Producer Controls — only in Producer mode */}
+              {(state.outputMode === 'producer' || state.producerMode) && (
+                <div>
+                  <label className="label flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={producerControlsEnabled} onChange={e => setProducerControlsEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded accent-orange-400" />
+                    <Sliders size={12} style={{ color: '#ffa502' }} />
+                    Producer Controls
+                  </label>
+                  {producerControlsEnabled && (
+                    <div className="mt-2 space-y-2 pl-1">
+                      {([
+                        ['Darkness',      producerDarkness,      setProducerDarkness],
+                        ['Melodicness',   producerMelodicness,   setProducerMelodicness],
+                        ['Aggression',    producerAggression,    setProducerAggression],
+                        ['Atmosphere',    producerAtmosphere,    setProducerAtmosphere],
+                        ['Groove Density',producerGrooveDensity, setProducerGrooveDensity],
+                      ] as [string, number, (v: number) => void][]).map(([label, val, setter]) => (
+                        <div key={label}>
+                          <label className="label flex justify-between text-xs">
+                            {label} <span style={{ color: '#ffa502' }}>{val.toFixed(2)}</span>
+                          </label>
+                          <input type="range" className="w-full" min={0} max={1} step={0.05}
+                            value={val} onChange={e => setter(+e.target.value)} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Generate */}
             <div className="flex gap-3">
               <button onClick={generate} disabled={running}
@@ -1411,6 +1526,11 @@ export default function StudioPage() {
                     {result.instrumental_hint && (
                       <p className="text-xs mt-0.5" style={{ color: '#d277ff' }}>
                         🎛️ Lyrics styled to uploaded instrumental
+                      </p>
+                    )}
+                    {result.suno_style_tags && (
+                      <p className="text-xs mt-0.5 font-mono" style={{ color: '#8ff5ff', opacity: 0.7 }}>
+                        🎨 {result.suno_style_tags}
                       </p>
                     )}
                   </div>
@@ -1695,6 +1815,44 @@ export default function StudioPage() {
                             })()}
                           </div>
                         ) : null}
+
+                        {/* Cadence Meta — from intelligence layer */}
+                        {result.cadence_meta && (
+                          <div className="rounded-xl p-3 space-y-2"
+                            style={{ background: 'rgba(210,119,255,0.04)', border: '1px solid rgba(210,119,255,0.1)' }}>
+                            <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#d277ff' }}>
+                              Cadence Transfer
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {result.cadence_meta.source === 'reference' && (
+                                <div className="col-span-2">
+                                  <span className="text-text-muted">Source:</span>{' '}
+                                  <span style={{ color: '#d277ff' }}>reference lyrics</span>
+                                </div>
+                              )}
+                              {result.cadence_meta.avg_syllables_per_line != null && (
+                                <div><span className="text-text-muted">Syllables/line:</span>{' '}
+                                  <span style={{ color: '#d277ff' }}>{Number(result.cadence_meta.avg_syllables_per_line).toFixed(1)}</span>
+                                </div>
+                              )}
+                              {result.cadence_meta.rhyme_scheme && (
+                                <div><span className="text-text-muted">Rhyme:</span>{' '}
+                                  <span style={{ color: '#d277ff' }}>{result.cadence_meta.rhyme_scheme}</span>
+                                </div>
+                              )}
+                              {result.cadence_meta.flow_density && (
+                                <div><span className="text-text-muted">Flow:</span>{' '}
+                                  <span style={{ color: '#d277ff' }}>{result.cadence_meta.flow_density}</span>
+                                </div>
+                              )}
+                              {result.cadence_meta.stress_style && (
+                                <div><span className="text-text-muted">Stress:</span>{' '}
+                                  <span style={{ color: '#d277ff' }}>{result.cadence_meta.stress_style}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
 
                         {result.analysis ? (
                           <div className="space-y-3">

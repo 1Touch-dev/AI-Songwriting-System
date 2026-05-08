@@ -15,6 +15,7 @@ export interface ProducerControlsInput {
 }
 
 export interface CadenceMeta {
+  source?: string
   rhyme_scheme: string
   rhyme_density: number
   avg_syllables_per_line: number
