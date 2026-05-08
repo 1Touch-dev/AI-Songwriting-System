@@ -125,6 +125,12 @@ if _RATE_LIMIT_AVAILABLE:
 else:
     limiter = None
 
+def _rate_limit(rate: str):
+    """Return slowapi rate-limit decorator, or identity if slowapi unavailable."""
+    if limiter:
+        return limiter.limit(rate)
+    return lambda f: f
+
 _pipeline: Optional[SongwritingPipeline] = None
 
 def get_pipeline() -> SongwritingPipeline:
@@ -527,7 +533,9 @@ def chorus_extract(req: ChorusExtractRequest, token: str = Depends(verify_token)
 
 
 @app.post("/stems/extract")
+@_rate_limit("3/minute")
 async def stems_extract(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     token: str = Depends(verify_token),
@@ -629,6 +637,7 @@ def stems_status(job_id: str, token: str = Depends(verify_token)):
 
 # ── Main generation endpoint — accepts multipart form with optional instrumental ──
 @app.post("/generate", response_model=GenerateResponse)
+@_rate_limit("10/minute")
 async def generate(
     request: Request,
     # JSON payload as a form field
@@ -642,13 +651,6 @@ async def generate(
       - payload: JSON string with all generation params
       - instrumental: optional MP3/WAV file to guide lyric style
     """
-    # Apply rate limiting if available
-    if _RATE_LIMIT_AVAILABLE and limiter:
-        try:
-            await limiter._check_request_limit(request, "10/minute", None)
-        except Exception:
-            pass  # rate limit errors handled by exception handler
-
     try:
         req_data = json.loads(payload)
     except Exception:
@@ -1140,6 +1142,7 @@ async def analyze_track(
 # ── GET /genres ───────────────────────────────────────────────────────────────
 
 @app.get("/genres")
+@_rate_limit("30/minute")
 def get_genres(request: Request, token: str = Depends(verify_token)):
     """List all available genre profiles."""
     genres = []
@@ -1158,6 +1161,7 @@ class BlendGenresRequest(BaseModel):
     weight: float = 0.5    # 0=all primary, 1=all secondary
 
 @app.post("/blend-genres")
+@_rate_limit("30/minute")
 def blend_genres_endpoint(req: BlendGenresRequest, request: Request, token: str = Depends(verify_token)):
     """Blend two genres into a weighted hybrid."""
     try:
@@ -1173,6 +1177,7 @@ class ExtractCadenceRequest(BaseModel):
     lyrics: str
 
 @app.post("/extract-cadence")
+@_rate_limit("30/minute")
 def extract_cadence_endpoint(req: ExtractCadenceRequest, request: Request, token: str = Depends(verify_token)):
     """Extract cadence profile from lyrics for flow transfer."""
     profile = extract_cadence(req.lyrics)
