@@ -231,6 +231,28 @@ def _build_chord_midi(
         beats_per_bar = 4
         sustain_beats = beats_per_bar - 0.1   # full bar minus tiny gap
 
+        # Fallback chord progressions when none are provided
+        # I–V–vi–IV (major) or i–VII–VI–VII (minor) — ubiquitous song progressions
+        _MAJOR_FALLBACK = ["I", "V", "vi", "IV"]  # semitone offsets: 0,7,9,5
+        _MAJOR_OFFSETS  = [0, 7, 9, 5]
+        _MINOR_OFFSETS  = [0, 10, 8, 10]   # i–VII–VI–VII
+        if not chords:
+            offsets = _MAJOR_OFFSETS if mode == "major" else _MINOR_OFFSETS
+            chord_name_map = {v: k for k, v in _KEY_ROOT_MIDI.items()}
+            fallback: list[str] = []
+            for offset in offsets:
+                chord_root_midi = (root_midi + offset) % 12 + 60
+                chord_root_name = chord_name_map.get(chord_root_midi, root)
+                if mode == "major" and offset == 9:
+                    quality = "min"   # vi chord in major key
+                elif mode == "minor" and offset == 0:
+                    quality = "min"   # i chord in minor key
+                else:
+                    quality = "maj"
+                fallback.append(f"{chord_root_name}{quality}")
+            chords = [fallback[i % len(fallback)] for i in range(total_bars)]
+            print(f"[DAW] Fallback progression ({mode}): {fallback}", flush=True)
+
         # Build bar→velocity map from markers
         bar_velocity: dict[int, int] = {}
         if markers:

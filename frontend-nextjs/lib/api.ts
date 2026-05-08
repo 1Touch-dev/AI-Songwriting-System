@@ -13,6 +13,22 @@ export async function login(email: string, password: string): Promise<{ token: s
   return res.data
 }
 
+export async function logout(token: string): Promise<void> {
+  try {
+    await client.post('/logout', {}, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 5_000,
+    })
+  } catch {
+    // Best-effort — local token is cleared regardless
+  }
+}
+
+export async function register(email: string, password: string): Promise<{ token: string }> {
+  const res = await client.post('/register', { email, password }, { timeout: 10_000 })
+  return res.data
+}
+
 /**
  * Generate lyrics + audio. Sends multipart/form-data so an optional
  * instrumental file can be included alongside the JSON params.

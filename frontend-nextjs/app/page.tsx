@@ -20,7 +20,7 @@ import type {
 import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
   extractChorus, extractStems, getStemStatus, getGlobalArtists,
-  analyzeTrack, generateRemixVariants, downloadDAWSession
+  analyzeTrack, generateRemixVariants, downloadDAWSession, logout
 } from '@/lib/api'
 import type { AudioAnalysisResult, RemixVariant } from '@/lib/types'
 
@@ -791,8 +791,10 @@ export default function StudioPage() {
   }, [stemJobId, stemStatus, token])
 
   const handleLogout = () => {
-    localStorage.removeItem(SESSION_TOKEN_KEY)
-    router.replace('/login')
+    logout(token).finally(() => {
+      localStorage.removeItem(SESSION_TOKEN_KEY)
+      router.replace('/login')
+    })
   }
 
   const clearAll = useCallback(() => {

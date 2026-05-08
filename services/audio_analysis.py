@@ -435,9 +435,14 @@ def _build_prompt_hint(
     flow = ", ".join(cadence.flow_descriptors) if cadence.flow_descriptors else "moderate flow"
     sections = ", ".join(structure.detected_sections) if structure.detected_sections else "verse, chorus"
 
+    # Honest BPM reporting — don't claim "0 BPM" for pad/ambient audio
+    if beat.bpm < 20 or beat.bpm_confidence < 0.15:
+        bpm_clause = "no detectable rhythmic pulse (ambient/pad/non-percussive audio)"
+    else:
+        bpm_clause = f"{beat.bpm:.0f} BPM ({beat.tempo_variation} tempo)"
+
     return (
-        f"The uploaded instrumental is in {harmonic.key} at {beat.bpm:.0f} BPM "
-        f"({beat.tempo_variation} tempo). "
+        f"The uploaded instrumental is in {harmonic.key} at {bpm_clause}. "
         f"Energy level is {energy.intensity} with {energy.dynamic_range:.0f}dB dynamic range. "
         f"Detected structure: {sections}. "
         f"Vocal delivery style implied: {flow}. "
@@ -454,11 +459,12 @@ def _build_suno_tags(
     cadence: CadenceInfo,
 ) -> str:
     """Build structured Suno prompt tags from audio analysis."""
-    tags = [
-        f"{beat.bpm:.0f}bpm",
-        harmonic.key.lower(),
-        harmonic.mode,
-    ]
+    tags = [harmonic.key.lower(), harmonic.mode]
+    # Only include BPM tag when we have reliable detection
+    if beat.bpm >= 20 and beat.bpm_confidence >= 0.15:
+        tags.insert(0, f"{beat.bpm:.0f}bpm")
+    else:
+        tags.append("ambient")  # signal to Suno that timing is free
 
     if energy.intensity == "very high":
         tags += ["energetic", "powerful"]

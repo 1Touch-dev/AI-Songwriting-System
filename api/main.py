@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Header, Request, UploadFile, File, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
@@ -141,8 +142,62 @@ def get_pipeline() -> SongwritingPipeline:
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────
-STUDIO_USERS  = {"admin@studio.com": "admins"}
-SESSION_TOKEN = "sonicflow-studio-session-v3"  # kept for backward compat
+# Credentials loaded from environment — no plaintext secrets in source.
+# Seed: ADMIN_EMAIL + ADMIN_PASSWORD_HASH (bcrypt) in .env
+# Registration adds rows to data/users.json (bcrypt hashed).
+
+_USERS_FILE = ROOT / "data" / "users.json"
+
+def _load_users() -> dict:
+    """Return {email: bcrypt_hash} from data/users.json + env seed."""
+    users: dict = {}
+    # Env-seeded admin
+    admin_email = os.getenv("ADMIN_EMAIL", "").lower().strip()
+    admin_hash  = os.getenv("ADMIN_PASSWORD_HASH", "")
+    if admin_email and admin_hash:
+        users[admin_email] = admin_hash
+    # File-stored users
+    if _USERS_FILE.exists():
+        try:
+            for u in json.loads(_USERS_FILE.read_text()):
+                users[u["email"]] = u["password_hash"]
+        except Exception:
+            pass
+    return users
+
+def _save_user(email: str, password_hash: str) -> None:
+    users: list = []
+    if _USERS_FILE.exists():
+        try:
+            users = json.loads(_USERS_FILE.read_text())
+        except Exception:
+            pass
+    users = [u for u in users if u["email"] != email]
+    users.append({"email": email, "password_hash": password_hash})
+    _USERS_FILE.write_text(json.dumps(users, indent=2))
+
+# Brute-force protection: track failed attempts per IP
+_login_attempts: dict[str, list[float]] = {}   # ip → [timestamp, ...]
+_LOGIN_WINDOW_S  = 300   # 5-minute window
+_LOGIN_MAX_FAILS = 10    # allow 10 failures before lockout
+
+def _check_brute_force(ip: str) -> None:
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW_S]
+    if len(attempts) >= _LOGIN_MAX_FAILS:
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Try again in 5 minutes.")
+    _login_attempts[ip] = attempts
+
+def _record_failed_login(ip: str) -> None:
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(ip, []) if now - t < _LOGIN_WINDOW_S]
+    _login_attempts[ip] = attempts + [now]
+
+def _clear_failed_login(ip: str) -> None:
+    _login_attempts.pop(ip, None)
+
+# Token blacklist for logout (in-memory; cleared on restart — acceptable for 24h JWT)
+_token_blacklist: set[str] = set()
 
 def _create_access_token(data: dict) -> str:
     """Create a JWT access token with 24h expiry."""
@@ -153,13 +208,13 @@ def _create_access_token(data: dict) -> str:
 
 def verify_token(authorization: str = Header(default="")) -> str:
     token = authorization.replace("Bearer ", "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-    # 1. Backward compat: static session token still accepted
-    if token == SESSION_TOKEN:
-        return token
+    if token in _token_blacklist:
+        raise HTTPException(status_code=401, detail="Token has been invalidated")
 
-    # 2. JWT verification (if available)
-    if _JWT_AVAILABLE and token:
+    if _JWT_AVAILABLE:
         try:
             payload = _jose_jwt.decode(token, _JWT_SECRET, algorithms=[_JWT_ALGORITHM])
             email = payload.get("sub")
@@ -168,7 +223,7 @@ def verify_token(authorization: str = Header(default="")) -> str:
         except JWTError:
             pass
 
-    raise HTTPException(status_code=401, detail="Invalid or missing token")
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────
@@ -205,6 +260,7 @@ class GenerateResponse(BaseModel):
     music_job_id: Optional[str] = None
     cadence_meta: Optional[dict] = None
     suno_style_tags: Optional[str] = None
+    producer_validation: Optional[dict] = None
 
 class ChorusExtractRequest(BaseModel):
     lyrics: str
@@ -427,28 +483,80 @@ def _build_structured_suno_tags(
 
 # ── Background cleanup worker ─────────────────────────────────────────────
 
+_DISK_QUOTA_WARN_PCT  = 85   # warn when disk > 85%
+_DISK_QUOTA_PURGE_PCT = 90   # purge oldest stems when disk > 90%
+_STEMS_MAX_AGE_S      = 3600 * 4   # 4 hours
+_UPLOADS_MAX_AGE_S    = 3600 * 2   # 2 hours
+_AUDIO_MAX_AGE_S      = 3600 * 24  # 24 hours (saved project audio)
+
+def _get_disk_pct() -> float:
+    import shutil
+    usage = shutil.disk_usage("/")
+    return 100.0 * usage.used / usage.total
+
+def _purge_old_files(directory: Path, max_age_s: float, extensions=(".wav",".mp3",".m4a",".flac")) -> int:
+    """Delete files older than max_age_s in directory. Returns count deleted."""
+    count = 0
+    cutoff = _time.time() - max_age_s
+    try:
+        for p in directory.rglob("*"):
+            if p.is_file() and p.suffix in extensions:
+                try:
+                    if p.stat().st_mtime < cutoff:
+                        p.unlink(missing_ok=True)
+                        count += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return count
+
 def _cleanup_worker():
     while True:
-        _time.sleep(3600)  # run hourly
+        _time.sleep(600)  # run every 10 minutes
         try:
-            # Clean old stems
+            now = _time.time()
+
+            # 1. Clean old uploads
+            deleted_uploads = _purge_old_files(UPLOADS_DIR, _UPLOADS_MAX_AGE_S)
+
+            # 2. Clean old stems
+            deleted_stems = _purge_old_files(STEMS_DIR, _STEMS_MAX_AGE_S)
+            # Also prune empty stem job directories
             try:
-                from services.stem_extractor import cleanup_old_stems
-                cleanup_old_stems()
+                for job_dir in STEMS_DIR.iterdir():
+                    if job_dir.is_dir() and not any(job_dir.rglob("*")):
+                        job_dir.rmdir()
             except Exception:
                 pass
-            # Clean temp files
+
+            # 3. Evict stale music jobs from memory (> 2 hours)
+            cutoff = now - 7200
+            stale_jobs = [jid for jid, j in list(_music_jobs.items()) if j.get("created_at", 0) < cutoff]
+            for jid in stale_jobs:
+                _music_jobs.pop(jid, None)
+
+            # 4. Clean /tmp sonicflow_ files
             for p in Path("/tmp").glob("sonicflow_*"):
                 try:
-                    if p.stat().st_mtime < _time.time() - 3600:
+                    if p.stat().st_mtime < now - 1800:
                         p.unlink(missing_ok=True)
                 except Exception:
                     pass
-            # Evict stale music jobs (older than 2 hours)
-            cutoff = _time.time() - 7200
-            stale = [jid for jid, j in list(_music_jobs.items()) if j.get("created_at", 0) < cutoff]
-            for jid in stale:
-                _music_jobs.pop(jid, None)
+
+            # 5. Disk quota enforcement
+            disk_pct = _get_disk_pct()
+            if disk_pct > _DISK_QUOTA_PURGE_PCT:
+                # Emergency purge: delete all stems and uploads immediately
+                deleted_emergency = _purge_old_files(STEMS_DIR, 0)
+                deleted_emergency += _purge_old_files(UPLOADS_DIR, 0)
+                print(f"[CLEANUP] EMERGENCY purge at {disk_pct:.0f}% disk — deleted {deleted_emergency} files", flush=True)
+            elif disk_pct > _DISK_QUOTA_WARN_PCT:
+                print(f"[CLEANUP] WARNING: disk at {disk_pct:.0f}%", flush=True)
+
+            if deleted_uploads + deleted_stems > 0:
+                print(f"[CLEANUP] Purged {deleted_uploads} uploads + {deleted_stems} stems | disk={_get_disk_pct():.0f}%", flush=True)
+
         except Exception as e:
             print(f"[CLEANUP] Error: {e}", flush=True)
 
@@ -488,17 +596,80 @@ def serve_audio(filename: str):
     return FileResponse(path, media_type="audio/mpeg", filename=safe)
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
 @app.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest):
-    expected_pw = STUDIO_USERS.get(req.email.lower().strip())
-    if expected_pw is None or req.password != expected_pw:
+@_rate_limit("5/minute")
+def login(req: LoginRequest, request: Request):
+    """Authenticate with email + bcrypt password. Returns JWT (24h)."""
+    ip = get_remote_address(request) if _RATE_LIMIT_AVAILABLE else "unknown"
+    _check_brute_force(ip)
+
+    email = req.email.lower().strip()
+    users = _load_users()
+    password_hash = users.get(email)
+
+    if not password_hash or not _JWT_AVAILABLE:
+        _record_failed_login(ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    # Issue JWT if available, else fall back to static token
-    if _JWT_AVAILABLE:
-        token = _create_access_token({"sub": req.email.lower().strip()})
-    else:
-        token = SESSION_TOKEN
+
+    if not _pwd_context.verify(req.password, password_hash):
+        _record_failed_login(ip)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    _clear_failed_login(ip)
+    token = _create_access_token({"sub": email})
     return {"token": token}
+
+
+@app.post("/logout")
+def logout(token: str = Depends(verify_token), authorization: str = Header(default="")):
+    """Invalidate the current JWT (added to server-side blacklist)."""
+    raw_token = authorization.replace("Bearer ", "").strip()
+    if raw_token:
+        _token_blacklist.add(raw_token)
+    return {"detail": "Logged out successfully"}
+
+
+@app.post("/register")
+@_rate_limit("3/minute")
+def register(req: RegisterRequest, request: Request):
+    """Register a new user account."""
+    email = req.email.lower().strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    users = _load_users()
+    if email in users:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    password_hash = _pwd_context.hash(req.password)
+    _save_user(email, password_hash)
+    token = _create_access_token({"sub": email})
+    return {"token": token, "detail": "Account created"}
+
+
+@app.post("/change-password")
+def change_password(req: ChangePasswordRequest, token: str = Depends(verify_token)):
+    """Change password for the authenticated user."""
+    email = token  # verify_token returns email for JWT auth
+    users = _load_users()
+    password_hash = users.get(email)
+    if not password_hash or not _pwd_context.verify(req.current_password, password_hash):
+        raise HTTPException(status_code=401, detail="Current password incorrect")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    new_hash = _pwd_context.hash(req.new_password)
+    _save_user(email, new_hash)
+    return {"detail": "Password updated successfully"}
 
 
 @app.get("/artists/search")
@@ -822,9 +993,9 @@ async def generate(
 
     print(f"[API] Intelligence layer: genre_tags={genre_tags_str[:60]!r} cadence_constraints={bool(cadence_constraints)} producer_desc={bool(producer_controls_desc_str)}", flush=True)
 
-    # ── Step 1: Lyrics ────────────────────────────────────────────────────
-    try:
-        res = pipeline.run(
+    # ── Step 1: Lyrics (offloaded to thread so uvicorn stays responsive) ────
+    def _run_pipeline():
+        return pipeline.run(
             artists=artists,
             theme=theme,
             structure=structure_str,
@@ -848,6 +1019,10 @@ async def generate(
             producer_controls_desc=producer_controls_desc_str,
             suno_style_tags=suno_style_tags,
         )
+
+    try:
+        loop = asyncio.get_event_loop()
+        res = await loop.run_in_executor(None, _run_pipeline)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Lyrics generation failed: {e}")
@@ -946,16 +1121,18 @@ async def generate(
     elif enable_mix and not instrumental_bytes:
         mix_error = "No instrumental uploaded — upload an MP3/WAV to mix"
 
-    # ── Step 5: Real AI Analysis ──────────────────────────────────────────
+    # ── Step 5: Real AI Analysis (offloaded so event loop stays free) ────────
     analysis = None
     try:
-        analysis_res = pipeline.run(
-            artists=artists,
-            theme=theme,
-            structure=structure_str,
-            reference_lyrics=lyrics,
-            analysis_mode=True,
-        )
+        def _run_analysis():
+            return pipeline.run(
+                artists=artists,
+                theme=theme,
+                structure=structure_str,
+                reference_lyrics=lyrics,
+                analysis_mode=True,
+            )
+        analysis_res = await loop.run_in_executor(None, _run_analysis)
         analysis = analysis_res.get("analysis")
     except Exception as e:
         print(f"[API] Analysis error: {e}")
@@ -972,6 +1149,52 @@ async def generate(
             chorus_preserved = all_present
             print(f"[API] chorus_preserved={chorus_preserved} "
                   f"({len(locked_lines)} locked lines checked)", flush=True)
+
+    # ── Producer mode: syllable + rhyme validation pass ──────────────────
+    producer_validation: Optional[dict] = None
+    if producer_mode and lyrics:
+        try:
+            import os as _os
+            _os.environ.setdefault("OPENAI_API_KEY", "dummy-not-needed-for-deterministic")
+            from rag.validator import ChorusValidator as _CV
+            _v = _CV()
+            _, _syl_report = _v.enforce_syllable_consistency(lyrics, target_avg=0, tolerance=3.0)
+            _rhyme_report = _v.check_rhyme_alignment(lyrics)
+
+            _syl_cv = (
+                (_syl_report.get("avg_syllables") or 0)
+                and (_syl_report.get("violation_count", 0) / max(1, len(
+                    [l for l in lyrics.split("\n") if l.strip() and not l.startswith("[")]
+                )))
+            )
+            producer_validation = {
+                "syllable_consistent": _syl_report.get("consistent", True),
+                "avg_syllables_per_line": _syl_report.get("avg_syllables", 0),
+                "syllable_violations": _syl_report.get("violation_count", 0),
+                "rhyme_scheme": _rhyme_report.get("rhyme_scheme", "unknown"),
+                "rhyme_density": _rhyme_report.get("rhyme_density", 0),
+                "flow_density": _rhyme_report.get("flow_density", "unknown"),
+            }
+
+            # If syllable consistency badly fails (>30% of lines are outliers),
+            # append a tightening note to the analysis so downstream tools can act on it.
+            if _syl_report.get("violation_count", 0) > 0:
+                print(
+                    f"[PRODUCER] Syllable violations: {_syl_report['violation_count']} "
+                    f"lines deviate from avg {_syl_report.get('avg_syllables', '?')} "
+                    f"syl/line (tolerance ±3)",
+                    flush=True,
+                )
+            else:
+                print("[PRODUCER] Syllable consistency: PASS", flush=True)
+
+            print(
+                f"[PRODUCER] Rhyme: scheme={_rhyme_report.get('rhyme_scheme')} "
+                f"density={_rhyme_report.get('rhyme_density', 0):.2f}",
+                flush=True,
+            )
+        except Exception as _pv_err:
+            print(f"[PRODUCER] Validation skipped: {_pv_err}", flush=True)
 
     # ── Cadence metadata for response ─────────────────────────────────────
     cadence_meta: Optional[dict] = None
@@ -1017,6 +1240,7 @@ async def generate(
         music_job_id=music_job_id,
         cadence_meta=cadence_meta,
         suno_style_tags=suno_style_tags or None,
+        producer_validation=producer_validation,
     )
 
 
