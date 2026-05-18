@@ -464,10 +464,7 @@ Respond ONLY with valid JSON:
         best_v = scored_versions[0]
         lyrics = best_v["lyrics"]
 
-        # ── FINAL HARDENING: Enforce Bars ──
-        if self._validator:
-            lyrics = self._validator.enforce_bars(lyrics, bars)
-            best_v["lyrics"] = lyrics
+        # enforce_bars truncation removed — prompt-level per-section counts handle length
 
         # ── Log ───────────────────────────────────────────────────────────
         log_generation(
