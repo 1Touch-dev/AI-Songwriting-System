@@ -651,29 +651,13 @@ export default function StudioPage() {
       setActiveVariant(0)
       toast.success('Production complete!')
 
-      // Helper: auto-extract stems from a base64 audio blob (Producer + Suno mode)
-      const autoExtractStems = async (audioB64: string, timestamp: string) => {
-        try {
-          const binary = atob(audioB64)
-          const bytes = new Uint8Array(binary.length)
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-          const blob = new Blob([bytes], { type: 'audio/mpeg' })
-          const safeTs = timestamp.replace(/:/g, '-')
-          const autoFile = new File([blob], `producer_song_${safeTs}.mp3`, { type: 'audio/mpeg' })
-          setStemFile(autoFile)
-          setStemStatus('uploading')
-          setStemUrls({})
-          toast('Stem extraction started automatically — see Stems tab in 2–8 min', { icon: '🎚️' })
-          const { job_id } = await extractStems(token, autoFile)
-          setStemJobId(job_id)
-          setStemStatus('processing')
-        } catch {
-          setStemStatus('failed')
-        }
-      }
+      // Reset stem trigger for new generation
+      stemTriggerRef.current = false
+      setStemStatus('idle')
+      setStemUrls({})
+      setStemJobId('')
 
       // Poll for async Suno audio if the job was submitted in background
-      let autoStemJobId: string | null = null
       if (res.music_job_id && !res.music_audio_b64) {
         setMusicPollStatus('polling')
         if (musicPollRef.current) clearInterval(musicPollRef.current)
@@ -684,12 +668,9 @@ export default function StudioPage() {
               clearInterval(musicPollRef.current!)
               musicPollRef.current = null
               setMusicPollStatus('done')
+              // useEffect watching result.music_audio_b64 will auto-trigger stems
               setResult(prev => prev ? { ...prev, music_audio_b64: job.audio_b64, has_music: true } : prev)
               toast.success('🎵 Suno audio ready!')
-              // Trigger stem extraction now that audio is available
-              if (state.outputMode === 'producer' && state.producerVocalSource === 'suno_singing') {
-                autoExtractStems(job.audio_b64, res.timestamp)
-              }
             } else if (job.status === 'failed') {
               clearInterval(musicPollRef.current!)
               musicPollRef.current = null
@@ -698,15 +679,6 @@ export default function StudioPage() {
             }
           } catch { /* keep polling */ }
         }, 10_000)
-      }
-
-      // Auto-extract stems immediately if Suno audio was already in the response (rare/sync case)
-      if (
-        state.outputMode === 'producer' &&
-        state.producerVocalSource === 'suno_singing' &&
-        res.music_audio_b64
-      ) {
-        autoExtractStems(res.music_audio_b64, res.timestamp)
       }
 
       try {
@@ -814,6 +786,42 @@ export default function StudioPage() {
       toast.error(`Stem extraction failed: ${msg}`)
     }
   }, [token])
+
+  // Auto-trigger stem extraction when Suno audio arrives (Producer + Suno mode)
+  const stemTriggerRef = useRef(false)
+  useEffect(() => {
+    if (
+      result?.music_audio_b64 &&
+      result?.output_mode === 'producer' &&
+      !stemTriggerRef.current &&
+      stemStatus === 'idle'
+    ) {
+      stemTriggerRef.current = true
+      const b64 = result.music_audio_b64
+      const ts = result.timestamp
+      ;(async () => {
+        try {
+          const binary = atob(b64)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const blob = new Blob([bytes], { type: 'audio/mpeg' })
+          const autoFile = new File([blob], `producer_song_${ts.replace(/:/g,'-')}.mp3`, { type: 'audio/mpeg' })
+          setStemFile(autoFile)
+          setStemStatus('uploading')
+          setStemUrls({})
+          toast('🎚️ Stem extraction started automatically — see Stems tab in 2–8 min')
+          const { job_id } = await extractStems(token, autoFile)
+          setStemJobId(job_id)
+          setStemStatus('processing')
+        } catch {
+          setStemStatus('failed')
+          toast.error('Stem extraction failed — try manually via the Stem Extraction tool')
+        }
+      })()
+    }
+    // Reset trigger when a new result comes in
+    if (!result?.music_audio_b64) stemTriggerRef.current = false
+  }, [result?.music_audio_b64, result?.output_mode, result?.timestamp, stemStatus, token])
 
   // Poll stem status
   useEffect(() => {
@@ -1663,13 +1671,23 @@ export default function StudioPage() {
                           <AudioPlayer b64={result.music_audio_b64}
                             label="AI Song (Suno — real vocals + instruments)"
                             filename={`producer_song_${result.timestamp.replace(/:/g,'-')}.mp3`} accentColor="#c3f400" />
-                          <div className="text-xs p-3 rounded-xl"
-                            style={{ background: 'rgba(195,244,0,0.06)', color: '#c3f400', border: '1px solid rgba(195,244,0,0.12)' }}>
-                            {stemStatus === 'processing' || stemStatus === 'uploading'
-                              ? '⚙️ Stem extraction running automatically — check Stems tab in 2–8 min'
-                              : stemStatus === 'done'
-                              ? '✓ Stems extracted automatically — see Stems tab'
-                              : 'Stem extraction will start automatically. Check the Stems tab for isolated vocals, drums, and bass.'}
+                          {/* Stem extraction status banner */}
+                          <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                            style={{
+                              background: stemStatus === 'done' ? 'rgba(195,244,0,0.08)'
+                                : stemStatus === 'failed' ? 'rgba(255,71,87,0.08)'
+                                : 'rgba(195,244,0,0.04)',
+                              color: stemStatus === 'done' ? '#c3f400'
+                                : stemStatus === 'failed' ? '#ff4757'
+                                : '#888',
+                              border: '1px solid rgba(195,244,0,0.10)',
+                            }}>
+                            {(stemStatus === 'uploading' || stemStatus === 'processing') && <Loader2 size={13} className="animate-spin" />}
+                            {stemStatus === 'uploading'   && 'Uploading song for stem extraction…'}
+                            {stemStatus === 'processing'  && '⚙️ Extracting stems via Demucs — check Stems tab in 2–8 min'}
+                            {stemStatus === 'done'        && '✓ Stems extracted — see Stems tab'}
+                            {stemStatus === 'failed'      && 'Stem extraction failed — use the Stem Extraction tool to retry'}
+                            {stemStatus === 'idle'        && 'Stem extraction will start automatically once Suno audio is ready.'}
                           </div>
                         </>
                       )}
