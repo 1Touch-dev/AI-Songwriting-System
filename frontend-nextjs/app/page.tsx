@@ -20,7 +20,8 @@ import type {
 import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
   extractChorus, extractStems, getStemStatus, getGlobalArtists,
-  analyzeTrack, generateRemixVariants, downloadDAWSession, logout
+  analyzeTrack, generateRemixVariants, downloadDAWSession, logout,
+  getMusicJobStatus
 } from '@/lib/api'
 import type { AudioAnalysisResult, RemixVariant } from '@/lib/types'
 
@@ -387,6 +388,8 @@ export default function StudioPage() {
   const [producerAggression, setProducerAggression] = useState(0.5)
   const [producerAtmosphere, setProducerAtmosphere] = useState(0.5)
   const [producerGrooveDensity, setProducerGrooveDensity] = useState(0.5)
+  const [musicPollStatus, setMusicPollStatus] = useState<'idle'|'polling'|'done'|'failed'>('idle')
+  const musicPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const REMIX_GENRE_OPTIONS = ['Drill', 'EDM', 'Afrobeat', 'Synthwave', 'Acoustic', 'Trap']
   const GENRE_OPTIONS = ['acoustic', 'afrobeat', 'cinematic', 'drill', 'edm', 'house', 'jersey_club', 'kpop', 'punjabi', 'reggaeton', 'synthwave', 'trap']
@@ -647,6 +650,29 @@ export default function StudioPage() {
       setActiveTab('lyrics')
       setActiveVariant(0)
       toast.success('Production complete!')
+
+      // Poll for async Suno audio if the job was submitted in background
+      if (res.music_job_id && !res.music_audio_b64) {
+        setMusicPollStatus('polling')
+        if (musicPollRef.current) clearInterval(musicPollRef.current)
+        musicPollRef.current = setInterval(async () => {
+          try {
+            const job = await getMusicJobStatus(token, res.music_job_id!)
+            if (job.status === 'done' && job.audio_b64) {
+              clearInterval(musicPollRef.current!)
+              musicPollRef.current = null
+              setMusicPollStatus('done')
+              setResult(prev => prev ? { ...prev, music_audio_b64: job.audio_b64, has_music: true } : prev)
+              toast.success('🎵 Suno audio ready!')
+            } else if (job.status === 'failed') {
+              clearInterval(musicPollRef.current!)
+              musicPollRef.current = null
+              setMusicPollStatus('failed')
+              toast.error('Suno generation failed — check credits')
+            }
+          } catch { /* keep polling */ }
+        }, 10_000)
+      }
 
       // Auto-extract stems when Producer + AI Singing — skip the manual re-upload step
       let autoStemJobId: string | null = null
@@ -1602,6 +1628,12 @@ export default function StudioPage() {
                       {result.music_audio_b64 ? (
                         <AudioPlayer b64={result.music_audio_b64} label="Full Song (Suno AI — vocals + instruments)"
                           filename={`full_song_${result.timestamp}.mp3`} accentColor="#c3f400" />
+                      ) : musicPollStatus === 'polling' ? (
+                        <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400' }}>
+                          <Loader2 size={14} className="animate-spin" />
+                          Suno is generating your song — audio will appear here automatically (usually 1–3 min)
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
                           style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
@@ -1635,7 +1667,14 @@ export default function StudioPage() {
                           </div>
                         </>
                       )}
-                      {!result.music_audio_b64 && result.music_error && (
+                      {!result.music_audio_b64 && musicPollStatus === 'polling' && (
+                        <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
+                          style={{ background: 'rgba(195,244,0,0.08)', color: '#c3f400' }}>
+                          <Loader2 size={14} className="animate-spin" />
+                          Suno is generating your song — audio will appear here automatically (usually 1–3 min)
+                        </div>
+                      )}
+                      {!result.music_audio_b64 && musicPollStatus !== 'polling' && result.music_error && (
                         <div className="flex items-center gap-2 text-xs p-3 rounded-xl"
                           style={{ background: 'rgba(255,165,2,0.08)', color: '#ffa502' }}>
                           <Info size={14} /> Suno generation failed — {result.music_error}
