@@ -269,10 +269,10 @@ DO NOT copy any actual lines.
 LENGTH & BAR CONTROL (STRICT)
 ----------------------------------------
 
-- Generate EXACTLY {bars} TOTAL lyrical lines across the entire song.
-- Section headers like [Verse 1] or [Chorus] are NOT counted as lines/bars.
-- Every non-header line = one bar. Sum of all non-header lines MUST equal {bars}.
+- Section headers like [Verse 1] or [Chorus] are NOT counted as lines/bars. Every non-header line = one bar.
 - Follow the per-section line counts shown in the output template exactly.
+- Write EVERY section defined in the output template — NEVER leave a section empty or skip it.
+- Verse sections: {bars} lines each. Do NOT stop generating until all sections are complete.
 
 ----------------------------------------
 LYRIC ALIGNMENT & CADENCE
@@ -516,8 +516,8 @@ def build_prompt(
         f"{cadence_block}"
         f"{mode_instruction}\n"
         f"{perspective_instruction}\n"
-        f"LENGTH CONSTRAINT: TOTAL lyrical lines = exactly {bars}. "
-        f"Section headers are NOT counted. Follow per-section counts in the output template.\n"
+        f"LENGTH CONSTRAINT: Each verse section = exactly {bars} lines. "
+        f"Write EVERY section in the output template — never leave any section empty.\n"
         f"{(f'ADDITIONAL NOTES: {extra_instructions}') if extra_instructions else ''}\n\n"
         f"{(f'REFERENCE LYRICS:\\n{reference_lyrics}') if reference_lyrics else ''}\n\n"
         f"{style_block}\n"
