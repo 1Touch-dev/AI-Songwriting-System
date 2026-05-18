@@ -651,7 +651,29 @@ export default function StudioPage() {
       setActiveVariant(0)
       toast.success('Production complete!')
 
+      // Helper: auto-extract stems from a base64 audio blob (Producer + Suno mode)
+      const autoExtractStems = async (audioB64: string, timestamp: string) => {
+        try {
+          const binary = atob(audioB64)
+          const bytes = new Uint8Array(binary.length)
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+          const blob = new Blob([bytes], { type: 'audio/mpeg' })
+          const safeTs = timestamp.replace(/:/g, '-')
+          const autoFile = new File([blob], `producer_song_${safeTs}.mp3`, { type: 'audio/mpeg' })
+          setStemFile(autoFile)
+          setStemStatus('uploading')
+          setStemUrls({})
+          toast('Stem extraction started automatically — see Stems tab in 2–8 min', { icon: '🎚️' })
+          const { job_id } = await extractStems(token, autoFile)
+          setStemJobId(job_id)
+          setStemStatus('processing')
+        } catch {
+          setStemStatus('failed')
+        }
+      }
+
       // Poll for async Suno audio if the job was submitted in background
+      let autoStemJobId: string | null = null
       if (res.music_job_id && !res.music_audio_b64) {
         setMusicPollStatus('polling')
         if (musicPollRef.current) clearInterval(musicPollRef.current)
@@ -664,6 +686,10 @@ export default function StudioPage() {
               setMusicPollStatus('done')
               setResult(prev => prev ? { ...prev, music_audio_b64: job.audio_b64, has_music: true } : prev)
               toast.success('🎵 Suno audio ready!')
+              // Trigger stem extraction now that audio is available
+              if (state.outputMode === 'producer' && state.producerVocalSource === 'suno_singing') {
+                autoExtractStems(job.audio_b64, res.timestamp)
+              }
             } else if (job.status === 'failed') {
               clearInterval(musicPollRef.current!)
               musicPollRef.current = null
@@ -674,33 +700,13 @@ export default function StudioPage() {
         }, 10_000)
       }
 
-      // Auto-extract stems when Producer + AI Singing — skip the manual re-upload step
-      let autoStemJobId: string | null = null
+      // Auto-extract stems immediately if Suno audio was already in the response (rare/sync case)
       if (
         state.outputMode === 'producer' &&
         state.producerVocalSource === 'suno_singing' &&
         res.music_audio_b64
       ) {
-        try {
-          const binary = atob(res.music_audio_b64)
-          const bytes = new Uint8Array(binary.length)
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-          const blob = new Blob([bytes], { type: 'audio/mpeg' })
-          const safeTs = res.timestamp.replace(/:/g, '-')
-          const autoFile = new File([blob], `producer_song_${safeTs}.mp3`, { type: 'audio/mpeg' })
-          setStemFile(autoFile)
-          setStemStatus('uploading')
-          setStemUrls({})
-          toast('Stem extraction started automatically — see Stems tab in 2–8 min', { icon: '🎚️' })
-          try {
-            const { job_id } = await extractStems(token, autoFile)
-            autoStemJobId = job_id   // capture locally — React state hasn't updated yet
-            setStemJobId(job_id)
-            setStemStatus('processing')
-          } catch {
-            setStemStatus('failed')
-          }
-        } catch { /* non-critical */ }
+        autoExtractStems(res.music_audio_b64, res.timestamp)
       }
 
       try {
@@ -738,7 +744,7 @@ export default function StudioPage() {
           section_mode:     state.sectionMode,
           ref_lyrics:       state.refLyrics || null,
           analysis:         res.analysis ?? null,
-          stem_job_id:      autoStemJobId || stemJobId || null,
+          stem_job_id:      stemJobId || null,
         })
       } catch { /* non-critical */ }
 
