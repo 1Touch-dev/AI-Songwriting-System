@@ -307,3 +307,14 @@ export async function getMusicJobStatus(
   })
   return res.data
 }
+
+export async function updateProjectAudio(
+  token: string,
+  projectId: string,
+  music_audio_b64?: string | null,
+): Promise<void> {
+  await client.patch(`/projects/${projectId}/audio`, { music_audio_b64 }, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 60_000,
+  })
+}

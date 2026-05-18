@@ -21,7 +21,7 @@ import {
   generateSong, searchArtists, b64ToDownloadUrl, saveProject,
   extractChorus, extractStems, getStemStatus, getGlobalArtists,
   analyzeTrack, generateRemixVariants, downloadDAWSession, logout,
-  getMusicJobStatus
+  getMusicJobStatus, updateProjectAudio
 } from '@/lib/api'
 import type { AudioAnalysisResult, RemixVariant } from '@/lib/types'
 
@@ -390,6 +390,7 @@ export default function StudioPage() {
   const [producerGrooveDensity, setProducerGrooveDensity] = useState(0.5)
   const [musicPollStatus, setMusicPollStatus] = useState<'idle'|'polling'|'done'|'failed'>('idle')
   const musicPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const savedProjectIdRef = useRef<string | null>(null)
 
   const REMIX_GENRE_OPTIONS = ['Drill', 'EDM', 'Afrobeat', 'Synthwave', 'Acoustic', 'Trap']
   const GENRE_OPTIONS = ['acoustic', 'afrobeat', 'cinematic', 'drill', 'edm', 'house', 'jersey_club', 'kpop', 'punjabi', 'reggaeton', 'synthwave', 'trap']
@@ -671,6 +672,10 @@ export default function StudioPage() {
               // useEffect watching result.music_audio_b64 will auto-trigger stems
               setResult(prev => prev ? { ...prev, music_audio_b64: job.audio_b64, has_music: true } : prev)
               toast.success('🎵 Suno audio ready!')
+              // Persist music audio to the saved project
+              if (savedProjectIdRef.current) {
+                updateProjectAudio(token, savedProjectIdRef.current, job.audio_b64).catch(() => {})
+              }
             } else if (job.status === 'failed') {
               clearInterval(musicPollRef.current!)
               musicPollRef.current = null
@@ -690,13 +695,14 @@ export default function StudioPage() {
       } catch { /* storage full */ }
 
       try {
-        await saveProject(token, {
+        savedProjectIdRef.current = null
+        const saved = await saveProject(token, {
           title:            res.theme || state.theme || 'Untitled',
           theme:            res.theme || state.theme,
           artist:           state.artist || 'Unknown',
           lyrics:           res.lyrics,
           has_voice:        !!res.voice_audio_b64,
-          has_music:        !!res.music_audio_b64,
+          has_music:        !!res.music_audio_b64 || !!res.music_job_id,
           has_mix:          !!res.mixed_audio_b64,
           duration_s:       0,
           voice_audio_b64:  res.voice_audio_b64,
@@ -718,6 +724,7 @@ export default function StudioPage() {
           analysis:         res.analysis ?? null,
           stem_job_id:      stemJobId || null,
         })
+        savedProjectIdRef.current = saved.id
       } catch { /* non-critical */ }
 
     } catch (err: unknown) {

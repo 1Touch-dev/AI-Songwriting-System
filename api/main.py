@@ -1318,6 +1318,59 @@ def save_project(req: SaveProjectRequest, token: str = Depends(verify_token)):
     return project
 
 
+class UpdateProjectAudioRequest(BaseModel):
+    music_audio_b64: Optional[str] = None
+    voice_audio_b64: Optional[str] = None
+    mixed_audio_b64: Optional[str] = None
+
+
+@app.patch("/projects/{project_id}/audio")
+def update_project_audio(
+    project_id: str,
+    req: UpdateProjectAudioRequest,
+    token: str = Depends(verify_token),
+):
+    """Update audio files on an existing project (called after async Suno job completes)."""
+    music_audio_b64 = req.music_audio_b64
+    voice_audio_b64 = req.voice_audio_b64
+    mixed_audio_b64 = req.mixed_audio_b64
+    projects = _load_projects()
+    proj = next((p for p in projects if p.get("id") == project_id), None)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    def _write_audio(b64_data: Optional[str], suffix: str) -> Optional[str]:
+        if not b64_data:
+            return None
+        try:
+            raw = base64.b64decode(b64_data)
+            fname = f"{project_id}_{suffix}.mp3"
+            (AUDIO_DIR / fname).write_bytes(raw)
+            return f"/audio/{fname}"
+        except Exception as e:
+            print(f"[PROJECTS] Audio update failed ({suffix}): {e}", flush=True)
+            return None
+
+    if music_audio_b64:
+        url = _write_audio(music_audio_b64, "music")
+        if url:
+            proj["music_url"] = url
+            proj["has_music"] = True
+    if voice_audio_b64:
+        url = _write_audio(voice_audio_b64, "voice")
+        if url:
+            proj["voice_url"] = url
+            proj["has_voice"] = True
+    if mixed_audio_b64:
+        url = _write_audio(mixed_audio_b64, "mix")
+        if url:
+            proj["mix_url"] = url
+            proj["has_mix"] = True
+
+    _save_projects(projects)
+    return {"id": project_id, "has_music": proj["has_music"], "music_url": proj.get("music_url")}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # INTELLIGENCE LAYER — Phase 4 endpoints
 # ═══════════════════════════════════════════════════════════════════════════════
