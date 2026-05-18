@@ -96,7 +96,7 @@ LABELING_MODEL = "gpt-4.1-mini"        # sufficient for structured JSON extracti
 
 # ── Generation settings ───────────────────────────────────────────────────
 GENERATION_TEMPERATURE = 0.85      # default; UI can override
-GENERATION_MAX_TOKENS = 1200
+GENERATION_MAX_TOKENS = 2000
 
 # ── RAG retrieval ─────────────────────────────────────────────────────────
 TOP_K = 8                          # default number of chunks to retrieve
