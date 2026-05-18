@@ -275,9 +275,12 @@ function ProjectCard({
     bass:   { label: 'Stem — Bass',        color: '#c3f400' },
     other:  { label: 'Stem — Instruments', color: '#ffa502' },
   }
-  const stemAudios = p.stem_job_id
-    ? STEM_NAMES.map(s => ({ key: s, url: `${BASE_URL}/stems/${p.stem_job_id}/audio/${s}`, ...STEM_META[s] }))
-    : []
+  // Prefer permanent stems saved to AUDIO_DIR; fall back to live job endpoint for current session
+  const stemAudios = p.stems && Object.keys(p.stems).length > 0
+    ? STEM_NAMES.filter(s => p.stems![s]).map(s => ({ key: s, url: audioUrl(p.stems![s])!, ...STEM_META[s] }))
+    : p.stem_job_id
+      ? STEM_NAMES.map(s => ({ key: s, url: `${BASE_URL}/stems/${p.stem_job_id}/audio/${s}`, ...STEM_META[s] }))
+      : []
 
   const hasAudio = !!(voiceAudio || musicAudio || mixAudio || stemAudios.length)
 

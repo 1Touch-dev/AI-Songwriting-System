@@ -840,6 +840,10 @@ export default function StudioPage() {
           clearInterval(poll)
           setStemStatus('done'); setStemUrls(job.stems)
           toast.success('Stems extracted! See Stems tab.')
+          // Persist stems permanently to project library
+          if (savedProjectIdRef.current) {
+            updateProjectAudio(token, savedProjectIdRef.current, null, stemJobId).catch(() => {})
+          }
         } else if (job.status === 'failed') {
           clearInterval(poll)
           setStemStatus('failed')

@@ -312,8 +312,9 @@ export async function updateProjectAudio(
   token: string,
   projectId: string,
   music_audio_b64?: string | null,
+  stem_job_id?: string | null,
 ): Promise<void> {
-  await client.patch(`/projects/${projectId}/audio`, { music_audio_b64 }, {
+  await client.patch(`/projects/${projectId}/audio`, { music_audio_b64, stem_job_id }, {
     headers: { Authorization: `Bearer ${token}` },
     timeout: 60_000,
   })

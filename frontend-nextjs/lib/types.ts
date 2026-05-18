@@ -122,6 +122,7 @@ export interface Project {
   ref_lyrics: string | null
   analysis: Record<string, unknown> | null
   stem_job_id: string | null
+  stems: Record<string, string> | null
 }
 
 export type GenMode = 'Generate New' | 'Continue Story' | 'Remix Style'

@@ -1322,6 +1322,7 @@ class UpdateProjectAudioRequest(BaseModel):
     music_audio_b64: Optional[str] = None
     voice_audio_b64: Optional[str] = None
     mixed_audio_b64: Optional[str] = None
+    stem_job_id: Optional[str] = None
 
 
 @app.patch("/projects/{project_id}/audio")
@@ -1330,10 +1331,11 @@ def update_project_audio(
     req: UpdateProjectAudioRequest,
     token: str = Depends(verify_token),
 ):
-    """Update audio files on an existing project (called after async Suno job completes)."""
+    """Update audio files on an existing project (called after async Suno job or stem extraction completes)."""
     music_audio_b64 = req.music_audio_b64
     voice_audio_b64 = req.voice_audio_b64
     mixed_audio_b64 = req.mixed_audio_b64
+    stem_job_id = req.stem_job_id
     projects = _load_projects()
     proj = next((p for p in projects if p.get("id") == project_id), None)
     if not proj:
@@ -1367,8 +1369,34 @@ def update_project_audio(
             proj["mix_url"] = url
             proj["has_mix"] = True
 
+    # Copy stems from temp STEMS_DIR into permanent AUDIO_DIR so they survive cleanup
+    if stem_job_id and re.match(r'^[a-z0-9_-]+$', stem_job_id):
+        import shutil
+        raw_stems = _stems_from_disk(stem_job_id)
+        saved_stems: dict[str, str] = proj.get("stems") or {}
+        for stem_name, src_path in raw_stems.items():
+            src = Path(src_path)
+            if not src.exists():
+                continue
+            dest_fname = f"{project_id}_stem_{stem_name}{src.suffix}"
+            dest = AUDIO_DIR / dest_fname
+            try:
+                shutil.copy2(src, dest)
+                saved_stems[stem_name] = f"/audio/{dest_fname}"
+            except Exception as e:
+                print(f"[PROJECTS] Stem copy failed ({stem_name}): {e}", flush=True)
+        if saved_stems:
+            proj["stems"] = saved_stems
+            proj["stem_job_id"] = stem_job_id
+            print(f"[PROJECTS] Saved {len(saved_stems)} stems for project {project_id}", flush=True)
+
     _save_projects(projects)
-    return {"id": project_id, "has_music": proj["has_music"], "music_url": proj.get("music_url")}
+    return {
+        "id": project_id,
+        "has_music": proj.get("has_music"),
+        "music_url": proj.get("music_url"),
+        "stems": proj.get("stems"),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
