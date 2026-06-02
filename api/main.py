@@ -78,8 +78,26 @@ STEMS_DIR      = ROOT / "data" / "stems"
 UPLOADS_DIR    = ROOT / "data" / "uploads"
 AUDIO_DIR      = ROOT / "data" / "audio"
 GLOBAL_ARTISTS = ROOT / "data" / "global_artists.json"
-for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR, AUDIO_DIR):
+STEM_CACHE_FILE = ROOT / "data" / "stem_cache.json"
+RAW_DIR        = ROOT / "data" / "raw"
+for d in (PROJECTS_FILE.parent, STEMS_DIR, UPLOADS_DIR, AUDIO_DIR, RAW_DIR):
     d.mkdir(parents=True, exist_ok=True)
+
+
+def _load_stem_cache() -> dict:
+    if not STEM_CACHE_FILE.exists():
+        return {}
+    try:
+        return json.loads(STEM_CACHE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_stem_cache(cache: dict) -> None:
+    try:
+        STEM_CACHE_FILE.write_text(json.dumps(cache, indent=2))
+    except Exception as e:
+        print(f"[STEM_CACHE] Save failed: {e}", flush=True)
 
 
 def _load_projects() -> list[dict]:
@@ -719,12 +737,44 @@ async def stems_extract(
     if len(content) > 60 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 60 MB)")
 
+    # ── Stem cache: if this exact file was stemmed before, return cached URLs ──
+    file_hash = hashlib.sha256(content).hexdigest()[:24]
+    stem_cache = _load_stem_cache()
+    if file_hash in stem_cache:
+        cached = stem_cache[file_hash]
+        # Verify all stem files still exist on disk
+        api_base = str(request.base_url).rstrip("/")
+        stem_urls = {}
+        all_present = True
+        for name, path in cached.get("stems", {}).items():
+            full = AUDIO_DIR / Path(path).name
+            if full.exists():
+                stem_urls[name] = f"{api_base}/audio/{Path(path).name}"
+            else:
+                all_present = False
+                break
+        if all_present and stem_urls:
+            cache_id = cached.get("job_id", f"cache_{file_hash[:8]}")
+            print(f"[STEM_CACHE] Hit for {file.filename} → {cache_id}", flush=True)
+            return {
+                "job_id":   cache_id,
+                "status":   "done",
+                "filename": file.filename,
+                "size_kb":  len(content) // 1024,
+                "cached":   True,
+                "stems":    stem_urls,
+            }
+
     file_id     = uuid.uuid4().hex[:10]
     upload_path = UPLOADS_DIR / f"{file_id}{ext}"
     upload_path.write_bytes(content)
 
     job_id = extract_stems_async(str(upload_path))
-    print(f"[API] Stem job {job_id} started for {file.filename}", flush=True)
+    print(f"[API] Stem job {job_id} started for {file.filename} (hash={file_hash})", flush=True)
+
+    # Store hash→job_id mapping so we can update cache when job completes
+    stem_cache[file_hash] = {"job_id": job_id, "stems": {}, "filename": file.filename}
+    _save_stem_cache(stem_cache)
 
     background_tasks.add_task(cleanup_old_jobs, 7200)
 
@@ -796,6 +846,14 @@ def stems_status(job_id: str, token: str = Depends(verify_token)):
         for stem_name, file_path in job.get("stems", {}).items():
             if Path(file_path).exists():
                 stem_urls[stem_name] = f"{api_base}/stems/{job_id}/audio/{stem_name}"
+
+        # Update stem cache with permanent stem paths if not already saved
+        stem_cache = _load_stem_cache()
+        for hash_key, entry in stem_cache.items():
+            if entry.get("job_id") == job_id and not entry.get("stems"):
+                entry["stems"] = {name: path for name, path in job.get("stems", {}).items()}
+                _save_stem_cache(stem_cache)
+                break
 
     return {
         "job_id":    job_id,
@@ -1396,6 +1454,198 @@ def update_project_audio(
         "has_music": proj.get("has_music"),
         "music_url": proj.get("music_url"),
         "stems": proj.get("stems"),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN — RAG artist management
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class AdminAddArtistRequest(BaseModel):
+    artist: str
+    genre: str = ""
+    songs: list[dict]   # [{song: str, lyrics: str, url?: str}]
+
+
+def _run_index_append(artist_name: str) -> tuple[bool, str]:
+    """Run 03_build_index.py --append --artist in a subprocess. Returns (ok, message)."""
+    import subprocess
+    script = ROOT / "scripts" / "03_build_index.py"
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script), "--append", "--artist", artist_name],
+            capture_output=True, text=True, timeout=300, cwd=str(ROOT),
+        )
+        if r.returncode == 0:
+            return True, r.stdout.strip()
+        return False, r.stderr.strip() or r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return False, "Index build timed out (300s)"
+    except Exception as e:
+        return False, str(e)
+
+
+@app.get("/admin/artists")
+def admin_list_artists(token: str = Depends(verify_token)):
+    """List all artists in the RAG corpus with song counts."""
+    from utils.config import LABELED_SONGS_PATH, CHUNKS_PATH
+    # Count labeled songs per artist
+    labeled: dict[str, int] = {}
+    if LABELED_SONGS_PATH.exists():
+        for line in LABELED_SONGS_PATH.read_text().splitlines():
+            if line.strip():
+                try:
+                    s = json.loads(line)
+                    a = s.get("artist", "")
+                    if a:
+                        labeled[a] = labeled.get(a, 0) + 1
+                except Exception:
+                    pass
+    # Count indexed chunks per artist
+    indexed: dict[str, int] = {}
+    if CHUNKS_PATH.exists():
+        for line in CHUNKS_PATH.read_text().splitlines():
+            if line.strip():
+                try:
+                    c = json.loads(line)
+                    a = c.get("artist", "")
+                    if a:
+                        indexed[a] = indexed.get(a, 0) + 1
+                except Exception:
+                    pass
+    # List raw JSON files
+    raw_artists = sorted(set(
+        f.stem.replace("_", " ").replace("___", " & ").title()
+        for f in RAW_DIR.glob("*.json")
+    ))
+    all_artists = sorted(set(list(labeled.keys()) + list(indexed.keys()) + raw_artists))
+    return {
+        "artists": [
+            {
+                "name": a,
+                "songs_labeled": labeled.get(a, 0),
+                "chunks_indexed": indexed.get(a, 0),
+                "in_raw": any(
+                    f.stem.replace("_", " ").title().lower() == a.lower()
+                    for f in RAW_DIR.glob("*.json")
+                ),
+            }
+            for a in all_artists
+        ],
+        "total_labeled": sum(labeled.values()),
+        "total_chunks": sum(indexed.values()),
+    }
+
+
+@app.post("/admin/artists")
+def admin_add_artist(req: AdminAddArtistRequest, token: str = Depends(verify_token)):
+    """Add a new artist to the RAG corpus and append to index."""
+    from utils.config import LABELED_SONGS_PATH
+
+    artist_name = req.artist.strip()
+    if not artist_name:
+        raise HTTPException(status_code=400, detail="Artist name required")
+    if not req.songs:
+        raise HTTPException(status_code=400, detail="At least one song required")
+
+    # 1. Save raw JSON
+    safe_name = re.sub(r"[^a-z0-9]+", "_", artist_name.lower()).strip("_")
+    raw_path = RAW_DIR / f"{safe_name}.json"
+    raw_data = [
+        {"artist": artist_name, "song": s.get("song", f"Song {i+1}"),
+         "lyrics": s.get("lyrics", ""), "url": s.get("url", "")}
+        for i, s in enumerate(req.songs)
+        if s.get("lyrics", "").strip()
+    ]
+    if not raw_data:
+        raise HTTPException(status_code=400, detail="No valid lyrics found in songs")
+
+    # Merge with existing raw data if present
+    if raw_path.exists():
+        try:
+            existing = json.loads(raw_path.read_text())
+            existing_songs = {s["song"] for s in existing}
+            raw_data = existing + [s for s in raw_data if s["song"] not in existing_songs]
+        except Exception:
+            pass
+    raw_path.write_text(json.dumps(raw_data, ensure_ascii=False, indent=2))
+
+    # 2. Append to labeled_songs.jsonl
+    with open(LABELED_SONGS_PATH, "a", encoding="utf-8") as f:
+        for s in raw_data:
+            if not s["lyrics"].strip():
+                continue
+            record = {
+                "artist": artist_name,
+                "song": s["song"],
+                "lyrics": s["lyrics"],
+                "genre": req.genre or "",
+                "year": None,
+                "chart_rank": None,
+                "structure": "",
+                "theme": "",
+                "url": s.get("url", ""),
+            }
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # 3. Rebuild index for this artist in background thread
+    def _do_index():
+        ok, msg = _run_index_append(artist_name)
+        status = "done" if ok else "failed"
+        print(f"[ADMIN] Index append for '{artist_name}': {status} — {msg[:200]}", flush=True)
+        # Hot-reload retriever so next generation uses new data
+        global _pipeline
+        _pipeline = None
+
+    threading.Thread(target=_do_index, daemon=True).start()
+
+    return {
+        "artist": artist_name,
+        "songs_added": len(raw_data),
+        "status": "indexing",
+        "message": f"Added {len(raw_data)} songs. Index update running in background (~30–90s).",
+    }
+
+
+@app.post("/admin/reindex")
+def admin_reindex(token: str = Depends(verify_token)):
+    """Full RAG index rebuild from all labeled songs."""
+    def _do_full_reindex():
+        from utils.config import LABELED_SONGS_PATH
+        import subprocess
+        script = ROOT / "scripts" / "03_build_index.py"
+        try:
+            r = subprocess.run(
+                [sys.executable, str(script)],
+                capture_output=True, text=True, timeout=600, cwd=str(ROOT),
+            )
+            status = "done" if r.returncode == 0 else "failed"
+            print(f"[ADMIN] Full reindex: {status}", flush=True)
+        except Exception as e:
+            print(f"[ADMIN] Full reindex error: {e}", flush=True)
+        # Reload pipeline
+        global _pipeline
+        _pipeline = None
+
+    threading.Thread(target=_do_full_reindex, daemon=True).start()
+    return {"status": "indexing", "message": "Full reindex started. Will take 2–10 minutes."}
+
+
+@app.get("/admin/index-stats")
+def admin_index_stats(token: str = Depends(verify_token)):
+    """Quick stats about the current FAISS index."""
+    from utils.config import FAISS_INDEX_PATH, FAISS_META_PATH, CHUNKS_PATH
+    try:
+        import faiss as _faiss
+        idx = _faiss.read_index(str(FAISS_INDEX_PATH)) if FAISS_INDEX_PATH.exists() else None
+        n_vectors = idx.ntotal if idx else 0
+    except Exception:
+        n_vectors = 0
+    n_meta = sum(1 for l in FAISS_META_PATH.read_text().splitlines() if l.strip()) if FAISS_META_PATH.exists() else 0
+    return {
+        "vectors_in_index": n_vectors,
+        "metadata_entries": n_meta,
+        "index_size_mb": round(FAISS_INDEX_PATH.stat().st_size / 1024 / 1024, 2) if FAISS_INDEX_PATH.exists() else 0,
     }
 
 

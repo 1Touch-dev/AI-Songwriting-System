@@ -7,7 +7,7 @@ import {
   Music2, Mic2, Sliders, ChevronDown, ChevronRight,
   Radio, Upload, Trash2, Library, Zap, Settings,
   AlertCircle, Info, RotateCcw, Square, Lock, Loader2,
-  Scissors, Globe, Layers, Wand2, Download, Blend
+  Scissors, Globe, Layers, Wand2, Download, Blend, Database
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import AudioPlayer from '@/components/AudioPlayer'
@@ -365,7 +365,7 @@ export default function StudioPage() {
   const [stemStatus, setStemStatus] = useState<'idle'|'uploading'|'processing'|'done'|'failed'>('idle')
   const [stemUrls, setStemUrls] = useState<Record<string, string>>({})
 
-  const [activeTab, setActiveTab] = useState<'lyrics'|'insights'|'variants'|'stats'|'stems'>('lyrics')
+  const [activeTab, setActiveTab] = useState<'lyrics'|'insights'|'stats'|'stems'>('lyrics')
 
   // Intelligence Layer state
   const [instrumentalAnalysis, setInstrumentalAnalysis] = useState<AudioAnalysisResult | null>(null)
@@ -920,6 +920,10 @@ export default function StudioPage() {
             <Link href="/library"
               className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all">
               <Library size={15} /> Library
+            </Link>
+            <Link href="/admin"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all">
+              <Database size={15} /> RAG Admin
             </Link>
             <button onClick={handleLogout}
               className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-text-muted hover:text-text-primary hover:bg-glass transition-all w-full text-left">
@@ -1799,13 +1803,12 @@ export default function StudioPage() {
                 {/* Tabs */}
                 <div className="glass-panel overflow-hidden">
                   <div className="flex border-b overflow-x-auto" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-                    {(['lyrics','insights','variants','stats', ...(hasStemsReady ? ['stems'] : [])] as const).map(tab => (
+                    {(['lyrics','insights','stats', ...(hasStemsReady ? ['stems'] : [])] as const).map(tab => (
                       <button key={tab}
                         onClick={() => setActiveTab(tab as typeof activeTab)}
                         className={`flex-shrink-0 flex-1 py-3 text-xs font-display font-semibold uppercase tracking-wider transition-all ${activeTab === tab ? 'tab-active' : 'text-text-muted hover:text-text-secondary'}`}>
                         {tab === 'lyrics'   ? '📝 Lyrics'
                           : tab === 'insights' ? '💡 Insights'
-                          : tab === 'variants' ? '🌈 Variants'
                           : tab === 'stems'    ? '🎚️ Stems'
                           : '📊 Stats'}
                       </button>
@@ -1816,6 +1819,24 @@ export default function StudioPage() {
                     {/* Lyrics */}
                     {activeTab === 'lyrics' && (
                       <div className="space-y-3">
+                        {/* Variant switcher — visible when multiple variants exist */}
+                        {result.versions && result.versions.length > 1 && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-text-muted">Variant:</span>
+                            {result.versions.map((v, i) => (
+                              <button key={i} onClick={() => setActiveVariant(i)}
+                                className="px-3 py-1 rounded-lg text-xs font-display font-semibold transition-all"
+                                style={activeVariant === i
+                                  ? { background: '#c3f400', color: '#0e0e0e' }
+                                  : { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.45)' }}>
+                                {String.fromCharCode(65 + i)}
+                                {activeVariant === i && v.style_fidelity > 0 && (
+                                  <span className="ml-1 opacity-60">{(v.style_fidelity * 100).toFixed(0)}%</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         {result.locked_chorus && (
                           <div className="rounded-lg px-3 py-2 text-xs flex items-center justify-between"
                             style={{ background: 'rgba(195,244,0,0.06)', border: '1px solid rgba(195,244,0,0.15)', color: '#c3f400' }}>
@@ -1835,7 +1856,11 @@ export default function StudioPage() {
                           </div>
                         )}
                         <div className="whitespace-pre-wrap text-sm leading-loose font-body">
-                          {formatLyrics(result.lyrics)}
+                          {formatLyrics(
+                            result.versions && result.versions.length > 1 && result.versions[activeVariant]
+                              ? result.versions[activeVariant].lyrics
+                              : result.lyrics
+                          )}
                         </div>
                       </div>
                     )}
@@ -1977,32 +2002,6 @@ export default function StudioPage() {
                     )}
 
                     {/* Variants */}
-                    {activeTab === 'variants' && (
-                      <div className="space-y-3">
-                        <div className="flex gap-2">
-                          {result.versions?.map((_, i) => (
-                            <button key={i} onClick={() => setActiveVariant(i)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-display font-semibold transition-all ${activeVariant === i ? 'text-background' : 'text-text-muted hover:text-text-primary'}`}
-                              style={activeVariant === i ? { background: '#c3f400' } : { background: 'rgba(255,255,255,0.05)' }}>
-                              Variant {String.fromCharCode(65 + i)}
-                            </button>
-                          ))}
-                        </div>
-                        {result.versions?.[activeVariant] && (
-                          <>
-                            <p className="text-xs text-text-muted">
-                              Style Fidelity: <span style={{ color: '#8ff5ff' }}>
-                                {result.versions[activeVariant].style_fidelity.toFixed(3)}
-                              </span>
-                            </p>
-                            <div className="whitespace-pre-wrap text-sm leading-loose text-text-secondary">
-                              {result.versions[activeVariant].lyrics}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-
                     {/* Stems */}
                     {activeTab === 'stems' && (
                       <div className="space-y-3">

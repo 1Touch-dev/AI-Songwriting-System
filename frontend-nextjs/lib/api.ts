@@ -319,3 +319,46 @@ export async function updateProjectAudio(
     timeout: 60_000,
   })
 }
+
+// ── Admin API ─────────────────────────────────────────────────────────────────
+
+export async function adminListArtists(token: string) {
+  const res = await client.get('/admin/artists', {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10_000,
+  })
+  return res.data as {
+    artists: { name: string; songs_labeled: number; chunks_indexed: number; in_raw: boolean }[]
+    total_labeled: number
+    total_chunks: number
+  }
+}
+
+export async function adminAddArtist(
+  token: string,
+  artist: string,
+  genre: string,
+  songs: { song: string; lyrics: string; url?: string }[],
+) {
+  const res = await client.post('/admin/artists', { artist, genre, songs }, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 30_000,
+  })
+  return res.data
+}
+
+export async function adminReindex(token: string) {
+  const res = await client.post('/admin/reindex', {}, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 15_000,
+  })
+  return res.data
+}
+
+export async function adminIndexStats(token: string) {
+  const res = await client.get('/admin/index-stats', {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10_000,
+  })
+  return res.data as { vectors_in_index: number; metadata_entries: number; index_size_mb: number }
+}

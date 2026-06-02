@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   Music2, Mic2, Radio, Search, ArrowLeft, Clock,
   ExternalLink, Trash2, X, Play, Pause, Download,
-  ChevronDown, ChevronUp, Layers, Zap,
+  ChevronDown, ChevronUp, Layers, Zap, Database,
 } from 'lucide-react'
 import { getProjects, deleteProject, audioUrl, BASE_URL } from '@/lib/api'
 import type { Project } from '@/lib/types'
@@ -182,6 +182,10 @@ export default function LibraryPage() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
+          <Link href="/admin" className="btn-secondary py-2 px-4 text-sm flex items-center gap-1.5"
+            style={{ borderColor: 'rgba(255,165,2,0.3)', color: '#ffa502' }}>
+            <Database size={14} /> RAG Admin
+          </Link>
           <Link href="/" className="btn-primary py-2 px-4 text-sm flex items-center gap-1.5">
             <Radio size={14} /> Studio
           </Link>
